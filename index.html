@@ -1,0 +1,2562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<title>FitLog — Food &amp; Gym Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+
+<!-- M003: AdSense site verification (publisher pub-3207104160733357) -->
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3207104160733357" crossorigin="anonymous"></script>
+<meta name="google-adsense-account" content="ca-pub-3207104160733357">
+
+<!-- M003: PWA manifest + iOS home-screen polish -->
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0f172a">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="FitLog">
+<meta name="description" content="FitLog — minimal food &amp; gym logging PWA. Track macros, BMI, TDEE, workouts. All data stays on your device.">
+
+<style>
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+body { margin:0; font-family:'Plus Jakarta Sans',sans-serif; background:#0f172a; display:flex; justify-content:center; align-items:center; min-height:100vh; padding:20px 0; }
+::-webkit-scrollbar { display:none; }
+input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
+input[type=number] { -moz-appearance:textfield; }
+select { -webkit-appearance:auto; }
+@keyframes slideUp { from{transform:translateY(20px);opacity:0} to{transform:translateY(0);opacity:1} }
+.page-enter { animation:slideUp 0.25s ease-out; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<style>#root{display:flex;justify-content:center;align-items:center;min-height:100vh;}</style>
+<script type="text/babel">
+
+// ─── Storage helpers ───────────────────────────────────────────────────────
+const DB = {
+  get: (key, fallback = null) => {
+    try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; }
+  },
+  set: (key, val) => { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} },
+};
+
+// ─── Formatting helpers ────────────────────────────────────────────────────
+const f1 = n => {
+  const r = Math.round(Number(n) * 10) / 10;
+  return Number.isFinite(r) ? r : 0;
+};
+
+// ─── Default food library ──────────────────────────────────────────────────
+// macros are stored PER portionSize portionUnit
+const DEFAULT_FOODS = [
+  { id:'f001', name:'Chicken Breast', kcal:165, protein:31, fat:3.6, carb:0, sugar:0, fiber:0, category:'Protein', portionSize:100, portionUnit:'g' },
+  { id:'f002', name:'White Rice (cooked)', kcal:130, protein:2.7, fat:0.3, carb:28, sugar:0, fiber:0.4, category:'Carbs', portionSize:100, portionUnit:'g' },
+  { id:'f003', name:'Brown Rice (cooked)', kcal:123, protein:2.6, fat:1, carb:25.6, sugar:0.4, fiber:1.8, category:'Carbs', portionSize:100, portionUnit:'g' },
+  { id:'f004', name:'Egg', kcal:70, protein:6, fat:5, carb:0.6, sugar:0.6, fiber:0, category:'Protein', portionSize:1, portionUnit:'piece' },
+  { id:'f005', name:'Oatmeal (dry)', kcal:389, protein:17, fat:7, carb:66, sugar:1, fiber:10, category:'Carbs', portionSize:100, portionUnit:'g' },
+  { id:'f006', name:'Salmon', kcal:208, protein:20, fat:13, carb:0, sugar:0, fiber:0, category:'Protein', portionSize:100, portionUnit:'g' },
+  { id:'f007', name:'Broccoli', kcal:34, protein:2.8, fat:0.4, carb:7, sugar:1.7, fiber:2.6, category:'Veg', portionSize:100, portionUnit:'g' },
+  { id:'f008', name:'Sweet Potato', kcal:86, protein:1.6, fat:0.1, carb:20, sugar:4.2, fiber:3, category:'Carbs', portionSize:100, portionUnit:'g' },
+  { id:'f009', name:'Banana', kcal:105, protein:1.3, fat:0.4, carb:27, sugar:14, fiber:3.1, category:'Fruit', portionSize:1, portionUnit:'piece' },
+  { id:'f010', name:'Greek Yogurt', kcal:97, protein:9, fat:5, carb:3.8, sugar:3.8, fiber:0, category:'Dairy', portionSize:100, portionUnit:'g' },
+  { id:'f011', name:'Almonds', kcal:173, protein:6, fat:15, carb:6, sugar:1.2, fiber:3.5, category:'Nuts', portionSize:30, portionUnit:'g' },
+  { id:'f012', name:'Whole Milk', kcal:149, protein:8, fat:8, carb:12, sugar:12, fiber:0, category:'Dairy', portionSize:240, portionUnit:'ml' },
+  { id:'f013', name:'Bread Whole Wheat', kcal:69, protein:3.6, fat:1, carb:12, sugar:1.4, fiber:1.9, category:'Carbs', portionSize:1, portionUnit:'slice' },
+  { id:'f014', name:'Tuna Canned', kcal:116, protein:26, fat:1, carb:0, sugar:0, fiber:0, category:'Protein', portionSize:100, portionUnit:'g' },
+  { id:'f015', name:'Olive Oil', kcal:119, protein:0, fat:14, carb:0, sugar:0, fiber:0, category:'Fat', portionSize:14, portionUnit:'ml' },
+  { id:'f016', name:'Spinach', kcal:23, protein:2.9, fat:0.4, carb:3.6, sugar:0.4, fiber:2.2, category:'Veg', portionSize:100, portionUnit:'g' },
+  { id:'f017', name:'Beef Lean', kcal:215, protein:26, fat:12, carb:0, sugar:0, fiber:0, category:'Protein', portionSize:100, portionUnit:'g' },
+  { id:'f018', name:'Cottage Cheese', kcal:98, protein:11, fat:4.3, carb:3.4, sugar:2.7, fiber:0, category:'Dairy', portionSize:100, portionUnit:'g' },
+  { id:'f019', name:'Peanut Butter', kcal:188, protein:8, fat:16, carb:6, sugar:3, fiber:1.9, category:'Nuts', portionSize:32, portionUnit:'g' },
+  { id:'f020', name:'Whey Protein', kcal:120, protein:24, fat:2, carb:3, sugar:2, fiber:0, category:'Supplement', portionSize:30, portionUnit:'g' },
+  { id:'f021', name:'Apple', kcal:95, protein:0.5, fat:0.3, carb:25, sugar:19, fiber:4.4, category:'Fruit', portionSize:1, portionUnit:'piece' },
+  { id:'f022', name:'Pasta (dry)', kcal:371, protein:13, fat:1.5, carb:74, sugar:3.5, fiber:3, category:'Carbs', portionSize:100, portionUnit:'g' },
+  { id:'f023', name:'Tofu Firm', kcal:76, protein:8, fat:4.8, carb:1.9, sugar:0.5, fiber:0.3, category:'Protein', portionSize:100, portionUnit:'g' },
+  { id:'f024', name:'Avocado', kcal:160, protein:2, fat:15, carb:9, sugar:0.7, fiber:6.7, category:'Fat', portionSize:100, portionUnit:'g' },
+  { id:'f025', name:'Orange Juice', kcal:112, protein:1.7, fat:0.5, carb:26, sugar:21, fiber:0.5, category:'Fruit', portionSize:240, portionUnit:'ml' },
+];
+
+// ─── TDEE / BMI Calculations ───────────────────────────────────────────────
+function calcBMR(profile) {
+  const { weight, height, age, gender } = profile;
+  if (!weight || !height || !age) return 0;
+  const base = 10 * weight + 6.25 * height - 5 * age;
+  return gender === 'male' ? base + 5 : base - 161;
+}
+
+const ACTIVITY_MULTIPLIERS = {
+  sedentary: 1.2, light: 1.375, moderate: 1.55, active: 1.725, very_active: 1.9,
+};
+
+function calcTDEE(profile) {
+  const bmr = calcBMR(profile);
+  return Math.round(bmr * (ACTIVITY_MULTIPLIERS[profile.activity] || 1.55));
+}
+
+function calcBMI(profile) {
+  const { weight, height } = profile;
+  if (!weight || !height) return 0;
+  return (weight / Math.pow(height / 100, 2)).toFixed(1);
+}
+
+function bmiCategory(bmi) {
+  if (bmi < 18.5) return { label: 'Underweight', color: '#3b82f6' };
+  if (bmi < 25) return { label: 'Normal', color: '#22c55e' };
+  if (bmi < 30) return { label: 'Overweight', color: '#f59e0b' };
+  return { label: 'Obese', color: '#ef4444' };
+}
+
+// ─── Macro targets by mode ─────────────────────────────────────────────────
+function getMacroTargets(profile, mode) {
+  const tdee = calcTDEE(profile);
+  const w = profile.weight || 70;
+  if (mode === 'diet') {
+    const kcal = tdee - 500;
+    const protein = Math.round(w * 1.8);
+    const fat = Math.round((kcal * 0.25) / 9);
+    const carb = Math.round((kcal - protein * 4 - fat * 9) / 4);
+    return { kcal, protein, fat, carb, sugar: Math.round(carb * 0.2), fiber: 30 };
+  }
+  if (mode === 'training') {
+    const kcal = tdee + 200;
+    const protein = Math.round(w * 2);
+    const fat = Math.round((kcal * 0.25) / 9);
+    const carb = Math.round((kcal - protein * 4 - fat * 9) / 4);
+    return { kcal, protein, fat, carb, sugar: Math.round(carb * 0.2), fiber: 25 };
+  }
+  const kcal = tdee;
+  const protein = Math.round(w * 1.2);
+  const fat = Math.round((kcal * 0.3) / 9);
+  const carb = Math.round((kcal - protein * 4 - fat * 9) / 4);
+  return { kcal, protein, fat, carb, sugar: Math.round(carb * 0.25), fiber: 25 };
+}
+
+// ─── Date helpers ──────────────────────────────────────────────────────────
+function today() { return new Date().toISOString().slice(0, 10); }
+function formatDate(d) { return new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric' }); }
+function currentMonth() { return new Date().toISOString().slice(0, 7); }
+
+// ─── Image share helper ────────────────────────────────────────────────────
+function shareAsImage(canvas, filename) {
+  canvas.toBlob(async blob => {
+    const file = new File([blob], filename, { type: 'image/png' });
+    if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: 'FitLog Summary' });
+        return;
+      } catch (e) {}
+    }
+    // Fallback: open image in new tab for manual save & share
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }, 'image/png');
+}
+
+// ─── Draw summary table to canvas ─────────────────────────────────────────
+function drawTableCanvas({ title, subtitle, headers, rows, footerRow, accentColor = '#22c55e' }) {
+  const dpr = window.devicePixelRatio || 1;
+  const padX = 24, padY = 20;
+  const rowH = 36, headH = 40;
+  const colWidths = headers.map((h, i) => i === 0 ? 100 : 64);
+  const totalW = colWidths.reduce((a, b) => a + b, 0) + padX * 2;
+  const totalH = padY * 2 + 52 + headH + (rows.length + 1) * rowH + (footerRow ? rowH : 0) + 16;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = totalW * dpr;
+  canvas.height = totalH * dpr;
+  canvas.style.width = totalW + 'px';
+  canvas.style.height = totalH + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  // Background
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(0, 0, totalW, totalH);
+
+  // Header block
+  ctx.fillStyle = accentColor;
+  ctx.fillRect(0, 0, totalW, 60);
+  ctx.fillStyle = '#fff';
+  ctx.font = `bold 16px 'Plus Jakarta Sans', sans-serif`;
+  ctx.fillText(title, padX, 24);
+  ctx.font = `12px 'Plus Jakarta Sans', sans-serif`;
+  ctx.fillStyle = 'rgba(255,255,255,0.75)';
+  ctx.fillText(subtitle, padX, 44);
+
+  // Logo/app name right
+  ctx.font = `bold 13px 'Plus Jakarta Sans', sans-serif`;
+  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  ctx.textAlign = 'right';
+  ctx.fillText('FitLog', totalW - padX, 36);
+  ctx.textAlign = 'left';
+
+  let y = 70;
+
+  // Table header
+  ctx.fillStyle = '#1e293b';
+  ctx.fillRect(padX, y, totalW - padX * 2, headH);
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = `bold 11px 'Plus Jakarta Sans', sans-serif`;
+  let x = padX;
+  headers.forEach((h, i) => {
+    ctx.textAlign = i === 0 ? 'left' : 'center';
+    ctx.fillText(h, x + (i === 0 ? 8 : colWidths[i] / 2), y + headH / 2 + 4);
+    x += colWidths[i];
+  });
+  y += headH;
+
+  // Rows
+  rows.forEach((row, ri) => {
+    ctx.fillStyle = ri % 2 === 0 ? '#172033' : '#1a2540';
+    ctx.fillRect(padX, y, totalW - padX * 2, rowH);
+    ctx.fillStyle = '#f1f5f9';
+    ctx.font = `${ri === 0 ? 'bold ' : ''}13px 'Plus Jakarta Sans', sans-serif`;
+    x = padX;
+    row.forEach((cell, ci) => {
+      ctx.textAlign = ci === 0 ? 'left' : 'center';
+      ctx.fillStyle = ci === 0 ? '#f1f5f9' : '#cbd5e1';
+      ctx.fillText(String(cell), x + (ci === 0 ? 8 : colWidths[ci] / 2), y + rowH / 2 + 5);
+      x += colWidths[ci];
+    });
+    y += rowH;
+  });
+
+  // Footer total row
+  if (footerRow) {
+    ctx.fillStyle = accentColor + '33';
+    ctx.fillRect(padX, y, totalW - padX * 2, rowH);
+    ctx.strokeStyle = accentColor;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(padX, y, totalW - padX * 2, rowH);
+    x = padX;
+    footerRow.forEach((cell, ci) => {
+      ctx.textAlign = ci === 0 ? 'left' : 'center';
+      ctx.fillStyle = ci === 1 ? accentColor : '#f1f5f9';
+      ctx.font = `bold 13px 'Plus Jakarta Sans', sans-serif`;
+      ctx.fillText(String(cell), x + (ci === 0 ? 8 : colWidths[ci] / 2), y + rowH / 2 + 5);
+      x += colWidths[ci];
+    });
+    y += rowH;
+  }
+
+  // Bottom note
+  ctx.fillStyle = '#475569';
+  ctx.font = `11px 'Plus Jakarta Sans', sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText('Generated by FitLog • ' + new Date().toLocaleDateString(), totalW / 2, y + 20);
+
+  return canvas;
+}
+
+Object.assign(window, {
+  DB, f1, DEFAULT_FOODS, calcBMR, calcTDEE, calcBMI, bmiCategory,
+  getMacroTargets, today, formatDate, currentMonth, ACTIVITY_MULTIPLIERS,
+  shareAsImage, drawTableCanvas
+});
+
+</script>
+<script type="text/babel">
+
+// iOS.jsx — Simplified iOS 26 (Liquid Glass) device frame
+// Based on the iOS 26 UI Kit + Figma status bar spec. No assets, no deps.
+// Exports: IOSDevice, IOSStatusBar, IOSNavBar, IOSGlassPill, IOSList, IOSListRow, IOSKeyboard
+
+// ─────────────────────────────────────────────────────────────
+// Status bar
+// ─────────────────────────────────────────────────────────────
+function IOSStatusBar({ dark = false, time = '9:41' }) {
+  const c = dark ? '#fff' : '#000';
+  return (
+    <div style={{
+      display: 'flex', gap: 154, alignItems: 'center', justifyContent: 'center',
+      padding: '21px 24px 19px', boxSizing: 'border-box',
+      position: 'relative', zIndex: 20, width: '100%',
+    }}>
+      <div style={{ flex: 1, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', paddingTop: 1.5 }}>
+        <span style={{
+          fontFamily: '-apple-system, "SF Pro", system-ui', fontWeight: 590,
+          fontSize: 17, lineHeight: '22px', color: c,
+        }}>{time}</span>
+      </div>
+      <div style={{ flex: 1, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, paddingTop: 1, paddingRight: 1 }}>
+        <svg width="19" height="12" viewBox="0 0 19 12">
+          <rect x="0" y="7.5" width="3.2" height="4.5" rx="0.7" fill={c}/>
+          <rect x="4.8" y="5" width="3.2" height="7" rx="0.7" fill={c}/>
+          <rect x="9.6" y="2.5" width="3.2" height="9.5" rx="0.7" fill={c}/>
+          <rect x="14.4" y="0" width="3.2" height="12" rx="0.7" fill={c}/>
+        </svg>
+        <svg width="17" height="12" viewBox="0 0 17 12">
+          <path d="M8.5 3.2C10.8 3.2 12.9 4.1 14.4 5.6L15.5 4.5C13.7 2.7 11.2 1.5 8.5 1.5C5.8 1.5 3.3 2.7 1.5 4.5L2.6 5.6C4.1 4.1 6.2 3.2 8.5 3.2Z" fill={c}/>
+          <path d="M8.5 6.8C9.9 6.8 11.1 7.3 12 8.2L13.1 7.1C11.8 5.9 10.2 5.1 8.5 5.1C6.8 5.1 5.2 5.9 3.9 7.1L5 8.2C5.9 7.3 7.1 6.8 8.5 6.8Z" fill={c}/>
+          <circle cx="8.5" cy="10.5" r="1.5" fill={c}/>
+        </svg>
+        <svg width="27" height="13" viewBox="0 0 27 13">
+          <rect x="0.5" y="0.5" width="23" height="12" rx="3.5" stroke={c} strokeOpacity="0.35" fill="none"/>
+          <rect x="2" y="2" width="20" height="9" rx="2" fill={c}/>
+          <path d="M25 4.5V8.5C25.8 8.2 26.5 7.2 26.5 6.5C26.5 5.8 25.8 4.8 25 4.5Z" fill={c} fillOpacity="0.4"/>
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Liquid glass pill — blur + tint + shine
+// ─────────────────────────────────────────────────────────────
+function IOSGlassPill({ children, dark = false, style = {} }) {
+  return (
+    <div style={{
+      height: 44, minWidth: 44, borderRadius: 9999,
+      position: 'relative', overflow: 'hidden',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      boxShadow: dark
+        ? '0 2px 6px rgba(0,0,0,0.35), 0 6px 16px rgba(0,0,0,0.2)'
+        : '0 1px 3px rgba(0,0,0,0.07), 0 3px 10px rgba(0,0,0,0.06)',
+      ...style,
+    }}>
+      {/* blur + tint */}
+      <div style={{
+        position: 'absolute', inset: 0, borderRadius: 9999,
+        backdropFilter: 'blur(12px) saturate(180%)',
+        WebkitBackdropFilter: 'blur(12px) saturate(180%)',
+        background: dark ? 'rgba(120,120,128,0.28)' : 'rgba(255,255,255,0.5)',
+      }} />
+      {/* shine */}
+      <div style={{
+        position: 'absolute', inset: 0, borderRadius: 9999,
+        boxShadow: dark
+          ? 'inset 1.5px 1.5px 1px rgba(255,255,255,0.15), inset -1px -1px 1px rgba(255,255,255,0.08)'
+          : 'inset 1.5px 1.5px 1px rgba(255,255,255,0.7), inset -1px -1px 1px rgba(255,255,255,0.4)',
+        border: dark ? '0.5px solid rgba(255,255,255,0.15)' : '0.5px solid rgba(0,0,0,0.06)',
+      }} />
+      <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', padding: '0 4px' }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Navigation bar — glass pills + large title
+// ─────────────────────────────────────────────────────────────
+function IOSNavBar({ title = 'Title', dark = false, trailingIcon = true }) {
+  const muted = dark ? 'rgba(255,255,255,0.6)' : '#404040';
+  const text = dark ? '#fff' : '#000';
+  const pillIcon = (content) => (
+    <IOSGlassPill dark={dark}>
+      <div style={{ width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        {content}
+      </div>
+    </IOSGlassPill>
+  );
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', gap: 10,
+      paddingTop: 62, paddingBottom: 10, position: 'relative', zIndex: 5,
+    }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '0 16px',
+      }}>
+        {/* back chevron */}
+        {pillIcon(
+          <svg width="12" height="20" viewBox="0 0 12 20" fill="none" style={{ marginLeft: -1 }}>
+            <path d="M10 2L2 10l8 8" stroke={muted} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        )}
+        {/* trailing ellipsis */}
+        {trailingIcon && pillIcon(
+          <svg width="22" height="6" viewBox="0 0 22 6">
+            <circle cx="3" cy="3" r="2.5" fill={muted}/>
+            <circle cx="11" cy="3" r="2.5" fill={muted}/>
+            <circle cx="19" cy="3" r="2.5" fill={muted}/>
+          </svg>
+        )}
+      </div>
+      {/* large title */}
+      <div style={{
+        padding: '0 16px',
+        fontFamily: '-apple-system, system-ui',
+        fontSize: 34, fontWeight: 700, lineHeight: '41px',
+        color: text, letterSpacing: 0.4,
+      }}>{title}</div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Grouped list (inset card, r:26) + row (52px)
+// ─────────────────────────────────────────────────────────────
+function IOSListRow({ title, detail, icon, chevron = true, isLast = false, dark = false }) {
+  const text = dark ? '#fff' : '#000';
+  const sec = dark ? 'rgba(235,235,245,0.6)' : 'rgba(60,60,67,0.6)';
+  const ter = dark ? 'rgba(235,235,245,0.3)' : 'rgba(60,60,67,0.3)';
+  const sep = dark ? 'rgba(84,84,88,0.65)' : 'rgba(60,60,67,0.12)';
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', minHeight: 52,
+      padding: '0 16px', position: 'relative',
+      fontFamily: '-apple-system, system-ui', fontSize: 17,
+      letterSpacing: -0.43,
+    }}>
+      {icon && (
+        <div style={{
+          width: 30, height: 30, borderRadius: 7, background: icon,
+          marginRight: 12, flexShrink: 0,
+        }} />
+      )}
+      <div style={{ flex: 1, color: text }}>{title}</div>
+      {detail && <span style={{ color: sec, marginRight: 6 }}>{detail}</span>}
+      {chevron && (
+        <svg width="8" height="14" viewBox="0 0 8 14" style={{ flexShrink: 0 }}>
+          <path d="M1 1l6 6-6 6" stroke={ter} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      )}
+      {!isLast && (
+        <div style={{
+          position: 'absolute', bottom: 0, right: 0,
+          left: icon ? 58 : 16, height: 0.5, background: sep,
+        }} />
+      )}
+    </div>
+  );
+}
+
+function IOSList({ header, children, dark = false }) {
+  const hc = dark ? 'rgba(235,235,245,0.6)' : 'rgba(60,60,67,0.6)';
+  const bg = dark ? '#1C1C1E' : '#fff';
+  return (
+    <div>
+      {header && (
+        <div style={{
+          fontFamily: '-apple-system, system-ui', fontSize: 13,
+          color: hc, textTransform: 'uppercase',
+          padding: '8px 36px 6px', letterSpacing: -0.08,
+        }}>{header}</div>
+      )}
+      <div style={{
+        background: bg, borderRadius: 26,
+        margin: '0 16px', overflow: 'hidden',
+      }}>{children}</div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Device frame
+// ─────────────────────────────────────────────────────────────
+function IOSDevice({
+  children, width = 402, height = 874, dark = false,
+  title, keyboard = false,
+}) {
+  return (
+    <div style={{
+      width, height, borderRadius: 48, overflow: 'hidden',
+      position: 'relative', background: dark ? '#000' : '#F2F2F7',
+      boxShadow: '0 40px 80px rgba(0,0,0,0.18), 0 0 0 1px rgba(0,0,0,0.12)',
+      fontFamily: '-apple-system, system-ui, sans-serif',
+      WebkitFontSmoothing: 'antialiased',
+    }}>
+      {/* dynamic island */}
+      <div style={{
+        position: 'absolute', top: 11, left: '50%', transform: 'translateX(-50%)',
+        width: 126, height: 37, borderRadius: 24, background: '#000', zIndex: 50,
+      }} />
+      {/* status bar (absolute) */}
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10 }}>
+        <IOSStatusBar dark={dark} />
+      </div>
+      {/* nav + content */}
+      <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+        {title !== undefined && <IOSNavBar title={title} dark={dark} />}
+        <div style={{ flex: 1, overflow: 'auto' }}>{children}</div>
+        {keyboard && <IOSKeyboard dark={dark} />}
+      </div>
+      {/* home indicator — always on top */}
+      <div style={{
+        position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 60,
+        height: 34, display: 'flex', justifyContent: 'center', alignItems: 'flex-end',
+        paddingBottom: 8, pointerEvents: 'none',
+      }}>
+        <div style={{
+          width: 139, height: 5, borderRadius: 100,
+          background: dark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.25)',
+        }} />
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Keyboard — iOS 26 liquid glass
+// ─────────────────────────────────────────────────────────────
+function IOSKeyboard({ dark = false }) {
+  const glyph = dark ? 'rgba(255,255,255,0.7)' : '#595959';
+  const sugg = dark ? 'rgba(255,255,255,0.6)' : '#333';
+  const keyBg = dark ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.85)';
+
+  // special-key icons
+  const icons = {
+    shift: <svg width="19" height="17" viewBox="0 0 19 17"><path d="M9.5 1L1 9.5h4.5V16h8V9.5H18L9.5 1z" fill={glyph}/></svg>,
+    del: <svg width="23" height="17" viewBox="0 0 23 17"><path d="M7 1h13a2 2 0 012 2v11a2 2 0 01-2 2H7l-6-7.5L7 1z" fill="none" stroke={glyph} strokeWidth="1.6" strokeLinejoin="round"/><path d="M10 5l7 7M17 5l-7 7" stroke={glyph} strokeWidth="1.6" strokeLinecap="round"/></svg>,
+    ret: <svg width="20" height="14" viewBox="0 0 20 14"><path d="M18 1v6H4m0 0l4-4M4 7l4 4" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>,
+  };
+
+  const key = (content, { w, flex, ret, fs = 25, k } = {}) => (
+    <div key={k} style={{
+      height: 42, borderRadius: 8.5,
+      flex: flex ? 1 : undefined, width: w, minWidth: 0,
+      background: ret ? '#08f' : keyBg,
+      boxShadow: '0 1px 0 rgba(0,0,0,0.075)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontFamily: '-apple-system, "SF Compact", system-ui',
+      fontSize: fs, fontWeight: 458, color: ret ? '#fff' : glyph,
+    }}>{content}</div>
+  );
+
+  const row = (keys, pad = 0) => (
+    <div style={{ display: 'flex', gap: 6.5, justifyContent: 'center', padding: `0 ${pad}px` }}>
+      {keys.map(l => key(l, { flex: true, k: l }))}
+    </div>
+  );
+
+  return (
+    <div style={{
+      position: 'relative', zIndex: 15, borderRadius: 27, overflow: 'hidden',
+      padding: '11px 0 2px',
+      display: 'flex', flexDirection: 'column', alignItems: 'center',
+      boxShadow: dark
+        ? '0 -2px 20px rgba(0,0,0,0.09)'
+        : '0 -1px 6px rgba(0,0,0,0.018), 0 -3px 20px rgba(0,0,0,0.012)',
+    }}>
+      {/* liquid glass bg — same recipe as nav pills */}
+      <div style={{
+        position: 'absolute', inset: 0, borderRadius: 27,
+        backdropFilter: 'blur(12px) saturate(180%)',
+        WebkitBackdropFilter: 'blur(12px) saturate(180%)',
+        background: dark ? 'rgba(120,120,128,0.14)' : 'rgba(255,255,255,0.25)',
+      }} />
+      <div style={{
+        position: 'absolute', inset: 0, borderRadius: 27,
+        boxShadow: dark
+          ? 'inset 1.5px 1.5px 1px rgba(255,255,255,0.15)'
+          : 'inset 1.5px 1.5px 1px rgba(255,255,255,0.7), inset -1px -1px 1px rgba(255,255,255,0.4)',
+        border: dark ? '0.5px solid rgba(255,255,255,0.15)' : '0.5px solid rgba(0,0,0,0.06)',
+        pointerEvents: 'none',
+      }} />
+
+      {/* autocorrect bar */}
+      <div style={{
+        display: 'flex', gap: 20, alignItems: 'center',
+        padding: '8px 22px 13px', width: '100%', boxSizing: 'border-box',
+        position: 'relative',
+      }}>
+        {['"The"', 'the', 'to'].map((w, i) => (
+          <React.Fragment key={i}>
+            {i > 0 && <div style={{ width: 1, height: 25, background: '#ccc', opacity: 0.3 }} />}
+            <div style={{
+              flex: 1, textAlign: 'center',
+              fontFamily: '-apple-system, system-ui', fontSize: 17,
+              color: sugg, letterSpacing: -0.43, lineHeight: '22px',
+            }}>{w}</div>
+          </React.Fragment>
+        ))}
+      </div>
+
+      {/* key layout */}
+      <div style={{
+        display: 'flex', flexDirection: 'column', gap: 13,
+        padding: '0 6.5px', width: '100%', boxSizing: 'border-box',
+        position: 'relative',
+      }}>
+        {row(['q','w','e','r','t','y','u','i','o','p'])}
+        {row(['a','s','d','f','g','h','j','k','l'], 20)}
+        <div style={{ display: 'flex', gap: 14.25, alignItems: 'center' }}>
+          {key(icons.shift, { w: 45, k: 'shift' })}
+          <div style={{ display: 'flex', gap: 6.5, flex: 1 }}>
+            {['z','x','c','v','b','n','m'].map(l => key(l, { flex: true, k: l }))}
+          </div>
+          {key(icons.del, { w: 45, k: 'del' })}
+        </div>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          {key('ABC', { w: 92.25, fs: 18, k: 'abc' })}
+          {key('', { flex: true, k: 'space' })}
+          {key(icons.ret, { w: 92.25, ret: true, k: 'ret' })}
+        </div>
+      </div>
+
+      {/* bottom spacer (emoji+mic area, icons omitted) */}
+      <div style={{ height: 56, width: '100%', position: 'relative' }} />
+    </div>
+  );
+}
+
+Object.assign(window, {
+  IOSDevice, IOSStatusBar, IOSNavBar, IOSGlassPill, IOSList, IOSListRow, IOSKeyboard,
+});
+
+</script>
+<script type="text/babel">
+
+// tweaks-panel.jsx
+// Reusable Tweaks shell + form-control helpers.
+//
+// Owns the host protocol (listens for __activate_edit_mode / __deactivate_edit_mode,
+// posts __edit_mode_available / __edit_mode_set_keys / __edit_mode_dismissed) so
+// individual prototypes don't re-roll it. Ships a consistent set of controls so you
+// don't hand-draw <input type="range">, segmented radios, steppers, etc.
+//
+// Usage (in an HTML file that loads React + Babel):
+//
+//   const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+//     "primaryColor": "#D97757",
+//     "fontSize": 16,
+//     "density": "regular",
+//     "dark": false
+//   }/*EDITMODE-END*/;
+//
+//   function App() {
+//     const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+//     return (
+//       <div style={{ fontSize: t.fontSize, color: t.primaryColor }}>
+//         Hello
+//         <TweaksPanel>
+//           <TweakSection label="Typography" />
+//           <TweakSlider label="Font size" value={t.fontSize} min={10} max={32} unit="px"
+//                        onChange={(v) => setTweak('fontSize', v)} />
+//           <TweakRadio  label="Density" value={t.density}
+//                        options={['compact', 'regular', 'comfy']}
+//                        onChange={(v) => setTweak('density', v)} />
+//           <TweakSection label="Theme" />
+//           <TweakColor  label="Primary" value={t.primaryColor}
+//                        onChange={(v) => setTweak('primaryColor', v)} />
+//           <TweakToggle label="Dark mode" value={t.dark}
+//                        onChange={(v) => setTweak('dark', v)} />
+//         </TweaksPanel>
+//       </div>
+//     );
+//   }
+//
+// ─────────────────────────────────────────────────────────────────────────────
+
+const __TWEAKS_STYLE = `
+  .twk-panel{position:fixed;right:16px;bottom:16px;z-index:2147483646;width:280px;
+    max-height:calc(100vh - 32px);display:flex;flex-direction:column;
+    background:rgba(250,249,247,.78);color:#29261b;
+    -webkit-backdrop-filter:blur(24px) saturate(160%);backdrop-filter:blur(24px) saturate(160%);
+    border:.5px solid rgba(255,255,255,.6);border-radius:14px;
+    box-shadow:0 1px 0 rgba(255,255,255,.5) inset,0 12px 40px rgba(0,0,0,.18);
+    font:11.5px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif;overflow:hidden}
+  .twk-hd{display:flex;align-items:center;justify-content:space-between;
+    padding:10px 8px 10px 14px;cursor:move;user-select:none}
+  .twk-hd b{font-size:12px;font-weight:600;letter-spacing:.01em}
+  .twk-x{appearance:none;border:0;background:transparent;color:rgba(41,38,27,.55);
+    width:22px;height:22px;border-radius:6px;cursor:default;font-size:13px;line-height:1}
+  .twk-x:hover{background:rgba(0,0,0,.06);color:#29261b}
+  .twk-body{padding:2px 14px 14px;display:flex;flex-direction:column;gap:10px;
+    overflow-y:auto;overflow-x:hidden;min-height:0;
+    scrollbar-width:thin;scrollbar-color:rgba(0,0,0,.15) transparent}
+  .twk-body::-webkit-scrollbar{width:8px}
+  .twk-body::-webkit-scrollbar-track{background:transparent;margin:2px}
+  .twk-body::-webkit-scrollbar-thumb{background:rgba(0,0,0,.15);border-radius:4px;
+    border:2px solid transparent;background-clip:content-box}
+  .twk-body::-webkit-scrollbar-thumb:hover{background:rgba(0,0,0,.25);
+    border:2px solid transparent;background-clip:content-box}
+  .twk-row{display:flex;flex-direction:column;gap:5px}
+  .twk-row-h{flex-direction:row;align-items:center;justify-content:space-between;gap:10px}
+  .twk-lbl{display:flex;justify-content:space-between;align-items:baseline;
+    color:rgba(41,38,27,.72)}
+  .twk-lbl>span:first-child{font-weight:500}
+  .twk-val{color:rgba(41,38,27,.5);font-variant-numeric:tabular-nums}
+
+  .twk-sect{font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+    color:rgba(41,38,27,.45);padding:10px 0 0}
+  .twk-sect:first-child{padding-top:0}
+
+  .twk-field{appearance:none;width:100%;height:26px;padding:0 8px;
+    border:.5px solid rgba(0,0,0,.1);border-radius:7px;
+    background:rgba(255,255,255,.6);color:inherit;font:inherit;outline:none}
+  .twk-field:focus{border-color:rgba(0,0,0,.25);background:rgba(255,255,255,.85)}
+  select.twk-field{padding-right:22px;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='rgba(0,0,0,.5)' d='M0 0h10L5 6z'/></svg>");
+    background-repeat:no-repeat;background-position:right 8px center}
+
+  .twk-slider{appearance:none;-webkit-appearance:none;width:100%;height:4px;margin:6px 0;
+    border-radius:999px;background:rgba(0,0,0,.12);outline:none}
+  .twk-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
+    width:14px;height:14px;border-radius:50%;background:#fff;
+    border:.5px solid rgba(0,0,0,.12);box-shadow:0 1px 3px rgba(0,0,0,.2);cursor:default}
+  .twk-slider::-moz-range-thumb{width:14px;height:14px;border-radius:50%;
+    background:#fff;border:.5px solid rgba(0,0,0,.12);box-shadow:0 1px 3px rgba(0,0,0,.2);cursor:default}
+
+  .twk-seg{position:relative;display:flex;padding:2px;border-radius:8px;
+    background:rgba(0,0,0,.06);user-select:none}
+  .twk-seg-thumb{position:absolute;top:2px;bottom:2px;border-radius:6px;
+    background:rgba(255,255,255,.9);box-shadow:0 1px 2px rgba(0,0,0,.12);
+    transition:left .15s cubic-bezier(.3,.7,.4,1),width .15s}
+  .twk-seg.dragging .twk-seg-thumb{transition:none}
+  .twk-seg button{appearance:none;position:relative;z-index:1;flex:1;border:0;
+    background:transparent;color:inherit;font:inherit;font-weight:500;min-height:22px;
+    border-radius:6px;cursor:default;padding:4px 6px;line-height:1.2;
+    overflow-wrap:anywhere}
+
+  .twk-toggle{position:relative;width:32px;height:18px;border:0;border-radius:999px;
+    background:rgba(0,0,0,.15);transition:background .15s;cursor:default;padding:0}
+  .twk-toggle[data-on="1"]{background:#34c759}
+  .twk-toggle i{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;
+    background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .15s}
+  .twk-toggle[data-on="1"] i{transform:translateX(14px)}
+
+  .twk-num{display:flex;align-items:center;height:26px;padding:0 0 0 8px;
+    border:.5px solid rgba(0,0,0,.1);border-radius:7px;background:rgba(255,255,255,.6)}
+  .twk-num-lbl{font-weight:500;color:rgba(41,38,27,.6);cursor:ew-resize;
+    user-select:none;padding-right:8px}
+  .twk-num input{flex:1;min-width:0;height:100%;border:0;background:transparent;
+    font:inherit;font-variant-numeric:tabular-nums;text-align:right;padding:0 8px 0 0;
+    outline:none;color:inherit;-moz-appearance:textfield}
+  .twk-num input::-webkit-inner-spin-button,.twk-num input::-webkit-outer-spin-button{
+    -webkit-appearance:none;margin:0}
+  .twk-num-unit{padding-right:8px;color:rgba(41,38,27,.45)}
+
+  .twk-btn{appearance:none;height:26px;padding:0 12px;border:0;border-radius:7px;
+    background:rgba(0,0,0,.78);color:#fff;font:inherit;font-weight:500;cursor:default}
+  .twk-btn:hover{background:rgba(0,0,0,.88)}
+  .twk-btn.secondary{background:rgba(0,0,0,.06);color:inherit}
+  .twk-btn.secondary:hover{background:rgba(0,0,0,.1)}
+
+  .twk-swatch{appearance:none;-webkit-appearance:none;width:56px;height:22px;
+    border:.5px solid rgba(0,0,0,.1);border-radius:6px;padding:0;cursor:default;
+    background:transparent;flex-shrink:0}
+  .twk-swatch::-webkit-color-swatch-wrapper{padding:0}
+  .twk-swatch::-webkit-color-swatch{border:0;border-radius:5.5px}
+  .twk-swatch::-moz-color-swatch{border:0;border-radius:5.5px}
+`;
+
+// ── useTweaks ───────────────────────────────────────────────────────────────
+// Single source of truth for tweak values. setTweak persists via the host
+// (__edit_mode_set_keys → host rewrites the EDITMODE block on disk).
+function useTweaks(defaults) {
+  const [values, setValues] = React.useState(defaults);
+  // Accepts either setTweak('key', value) or setTweak({ key: value, ... }) so a
+  // useState-style call doesn't write a "[object Object]" key into the persisted
+  // JSON block.
+  const setTweak = React.useCallback((keyOrEdits, val) => {
+    const edits = typeof keyOrEdits === 'object' && keyOrEdits !== null
+      ? keyOrEdits : { [keyOrEdits]: val };
+    setValues((prev) => ({ ...prev, ...edits }));
+    window.parent.postMessage({ type: '__edit_mode_set_keys', edits }, '*');
+  }, []);
+  return [values, setTweak];
+}
+
+// ── TweaksPanel ─────────────────────────────────────────────────────────────
+// Floating shell. Registers the protocol listener BEFORE announcing
+// availability — if the announce ran first, the host's activate could land
+// before our handler exists and the toolbar toggle would silently no-op.
+// The close button posts __edit_mode_dismissed so the host's toolbar toggle
+// flips off in lockstep; the host echoes __deactivate_edit_mode back which
+// is what actually hides the panel.
+function TweaksPanel({ title = 'Tweaks', children }) {
+  const [open, setOpen] = React.useState(false);
+  const dragRef = React.useRef(null);
+  const offsetRef = React.useRef({ x: 16, y: 16 });
+  const PAD = 16;
+
+  const clampToViewport = React.useCallback(() => {
+    const panel = dragRef.current;
+    if (!panel) return;
+    const w = panel.offsetWidth, h = panel.offsetHeight;
+    const maxRight = Math.max(PAD, window.innerWidth - w - PAD);
+    const maxBottom = Math.max(PAD, window.innerHeight - h - PAD);
+    offsetRef.current = {
+      x: Math.min(maxRight, Math.max(PAD, offsetRef.current.x)),
+      y: Math.min(maxBottom, Math.max(PAD, offsetRef.current.y)),
+    };
+    panel.style.right = offsetRef.current.x + 'px';
+    panel.style.bottom = offsetRef.current.y + 'px';
+  }, []);
+
+  React.useEffect(() => {
+    if (!open) return;
+    clampToViewport();
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', clampToViewport);
+      return () => window.removeEventListener('resize', clampToViewport);
+    }
+    const ro = new ResizeObserver(clampToViewport);
+    ro.observe(document.documentElement);
+    return () => ro.disconnect();
+  }, [open, clampToViewport]);
+
+  React.useEffect(() => {
+    const onMsg = (e) => {
+      const t = e?.data?.type;
+      if (t === '__activate_edit_mode') setOpen(true);
+      else if (t === '__deactivate_edit_mode') setOpen(false);
+    };
+    window.addEventListener('message', onMsg);
+    window.parent.postMessage({ type: '__edit_mode_available' }, '*');
+    return () => window.removeEventListener('message', onMsg);
+  }, []);
+
+  const dismiss = () => {
+    setOpen(false);
+    window.parent.postMessage({ type: '__edit_mode_dismissed' }, '*');
+  };
+
+  const onDragStart = (e) => {
+    const panel = dragRef.current;
+    if (!panel) return;
+    const r = panel.getBoundingClientRect();
+    const sx = e.clientX, sy = e.clientY;
+    const startRight = window.innerWidth - r.right;
+    const startBottom = window.innerHeight - r.bottom;
+    const move = (ev) => {
+      offsetRef.current = {
+        x: startRight - (ev.clientX - sx),
+        y: startBottom - (ev.clientY - sy),
+      };
+      clampToViewport();
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  };
+
+  if (!open) return null;
+  return (
+    <>
+      <style>{__TWEAKS_STYLE}</style>
+      <div ref={dragRef} className="twk-panel"
+           style={{ right: offsetRef.current.x, bottom: offsetRef.current.y }}>
+        <div className="twk-hd" onMouseDown={onDragStart}>
+          <b>{title}</b>
+          <button className="twk-x" aria-label="Close tweaks"
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={dismiss}>✕</button>
+        </div>
+        <div className="twk-body">{children}</div>
+      </div>
+    </>
+  );
+}
+
+// ── Layout helpers ──────────────────────────────────────────────────────────
+
+function TweakSection({ label, children }) {
+  return (
+    <>
+      <div className="twk-sect">{label}</div>
+      {children}
+    </>
+  );
+}
+
+function TweakRow({ label, value, children, inline = false }) {
+  return (
+    <div className={inline ? 'twk-row twk-row-h' : 'twk-row'}>
+      <div className="twk-lbl">
+        <span>{label}</span>
+        {value != null && <span className="twk-val">{value}</span>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// ── Controls ────────────────────────────────────────────────────────────────
+
+function TweakSlider({ label, value, min = 0, max = 100, step = 1, unit = '', onChange }) {
+  return (
+    <TweakRow label={label} value={`${value}${unit}`}>
+      <input type="range" className="twk-slider" min={min} max={max} step={step}
+             value={value} onChange={(e) => onChange(Number(e.target.value))} />
+    </TweakRow>
+  );
+}
+
+function TweakToggle({ label, value, onChange }) {
+  return (
+    <div className="twk-row twk-row-h">
+      <div className="twk-lbl"><span>{label}</span></div>
+      <button type="button" className="twk-toggle" data-on={value ? '1' : '0'}
+              role="switch" aria-checked={!!value}
+              onClick={() => onChange(!value)}><i /></button>
+    </div>
+  );
+}
+
+function TweakRadio({ label, value, options, onChange }) {
+  const trackRef = React.useRef(null);
+  const [dragging, setDragging] = React.useState(false);
+  const opts = options.map((o) => (typeof o === 'object' ? o : { value: o, label: o }));
+  const idx = Math.max(0, opts.findIndex((o) => o.value === value));
+  const n = opts.length;
+
+  // The active value is read by pointer-move handlers attached for the lifetime
+  // of a drag — ref it so a stale closure doesn't fire onChange for every move.
+  const valueRef = React.useRef(value);
+  valueRef.current = value;
+
+  const segAt = (clientX) => {
+    const r = trackRef.current.getBoundingClientRect();
+    const inner = r.width - 4;
+    const i = Math.floor(((clientX - r.left - 2) / inner) * n);
+    return opts[Math.max(0, Math.min(n - 1, i))].value;
+  };
+
+  const onPointerDown = (e) => {
+    setDragging(true);
+    const v0 = segAt(e.clientX);
+    if (v0 !== valueRef.current) onChange(v0);
+    const move = (ev) => {
+      if (!trackRef.current) return;
+      const v = segAt(ev.clientX);
+      if (v !== valueRef.current) onChange(v);
+    };
+    const up = () => {
+      setDragging(false);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+
+  return (
+    <TweakRow label={label}>
+      <div ref={trackRef} role="radiogroup" onPointerDown={onPointerDown}
+           className={dragging ? 'twk-seg dragging' : 'twk-seg'}>
+        <div className="twk-seg-thumb"
+             style={{ left: `calc(2px + ${idx} * (100% - 4px) / ${n})`,
+                      width: `calc((100% - 4px) / ${n})` }} />
+        {opts.map((o) => (
+          <button key={o.value} type="button" role="radio" aria-checked={o.value === value}>
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </TweakRow>
+  );
+}
+
+function TweakSelect({ label, value, options, onChange }) {
+  return (
+    <TweakRow label={label}>
+      <select className="twk-field" value={value} onChange={(e) => onChange(e.target.value)}>
+        {options.map((o) => {
+          const v = typeof o === 'object' ? o.value : o;
+          const l = typeof o === 'object' ? o.label : o;
+          return <option key={v} value={v}>{l}</option>;
+        })}
+      </select>
+    </TweakRow>
+  );
+}
+
+function TweakText({ label, value, placeholder, onChange }) {
+  return (
+    <TweakRow label={label}>
+      <input className="twk-field" type="text" value={value} placeholder={placeholder}
+             onChange={(e) => onChange(e.target.value)} />
+    </TweakRow>
+  );
+}
+
+function TweakNumber({ label, value, min, max, step = 1, unit = '', onChange }) {
+  const clamp = (n) => {
+    if (min != null && n < min) return min;
+    if (max != null && n > max) return max;
+    return n;
+  };
+  const startRef = React.useRef({ x: 0, val: 0 });
+  const onScrubStart = (e) => {
+    e.preventDefault();
+    startRef.current = { x: e.clientX, val: value };
+    const decimals = (String(step).split('.')[1] || '').length;
+    const move = (ev) => {
+      const dx = ev.clientX - startRef.current.x;
+      const raw = startRef.current.val + dx * step;
+      const snapped = Math.round(raw / step) * step;
+      onChange(clamp(Number(snapped.toFixed(decimals))));
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+  return (
+    <div className="twk-num">
+      <span className="twk-num-lbl" onPointerDown={onScrubStart}>{label}</span>
+      <input type="number" value={value} min={min} max={max} step={step}
+             onChange={(e) => onChange(clamp(Number(e.target.value)))} />
+      {unit && <span className="twk-num-unit">{unit}</span>}
+    </div>
+  );
+}
+
+function TweakColor({ label, value, onChange }) {
+  return (
+    <div className="twk-row twk-row-h">
+      <div className="twk-lbl"><span>{label}</span></div>
+      <input type="color" className="twk-swatch" value={value}
+             onChange={(e) => onChange(e.target.value)} />
+    </div>
+  );
+}
+
+function TweakButton({ label, onClick, secondary = false }) {
+  return (
+    <button type="button" className={secondary ? 'twk-btn secondary' : 'twk-btn'}
+            onClick={onClick}>{label}</button>
+  );
+}
+
+Object.assign(window, {
+  useTweaks, TweaksPanel, TweakSection, TweakRow,
+  TweakSlider, TweakToggle, TweakRadio, TweakSelect,
+  TweakText, TweakNumber, TweakColor, TweakButton,
+});
+
+</script>
+<script type="text/babel">
+
+// ProfilePage.jsx
+function ProfilePage({ profile, setProfile }) {
+  const [tab, setTab] = React.useState(profile.username ? 'view' : 'setup');
+  const [form, setForm] = React.useState({
+    username: '', email: '', gender: 'male',
+    weight: '', height: '', age: '',
+    activity: 'moderate', goal: 'maintain',
+    ...profile
+  });
+
+  const bmi = calcBMI(form);
+  const bmiCat = bmiCategory(Number(bmi));
+  const tdee = calcTDEE(form);
+  const targets = getMacroTargets(form, 'normal');
+
+  function save() {
+    const p = { ...form, weight: Number(form.weight), height: Number(form.height), age: Number(form.age) };
+    DB.set('fgl_profile', p);
+    setProfile(p);
+    setTab('view');
+  }
+
+  const inp = (field, val) => setForm(f => ({ ...f, [field]: val }));
+
+  const fieldStyle = {
+    width: '100%', padding: '10px 12px', borderRadius: 10,
+    border: '1.5px solid #e5e7eb', fontSize: 15, outline: 'none',
+    background: '#fafafa', boxSizing: 'border-box', fontFamily: 'inherit',
+  };
+  const labelStyle = { fontSize: 12, fontWeight: 600, color: '#6b7280', marginBottom: 4, display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' };
+  const cardStyle = { background: '#fff', borderRadius: 16, padding: '16px', marginBottom: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.07)' };
+
+  if (tab === 'setup') return (
+    <div style={{ padding: '0 16px 100px', overflowY: 'auto', height: '100%' }}>
+      <div style={{ paddingTop: 16, paddingBottom: 8 }}>
+        <div style={{ fontSize: 22, fontWeight: 800, color: '#111' }}>Setup Profile</div>
+        <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>Your data stays on this device only</div>
+      </div>
+
+      <div style={cardStyle}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: '#4B5563', marginBottom: 12 }}>Sign in (optional — saves data sync)</div>
+        <button onClick={() => inp('authMethod','google')} style={{
+          width: '100%', padding: '11px', borderRadius: 10, border: '1.5px solid #e5e7eb',
+          background: form.authMethod === 'google' ? '#f0fdf4' : '#fff', fontSize: 14, fontWeight: 600,
+          display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: 8, justifyContent: 'center'
+        }}>
+          <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+          Continue with Google
+        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input style={{ ...fieldStyle, flex: 1 }} placeholder="Email" value={form.email || ''} onChange={e => inp('email', e.target.value)} />
+          <button style={{ padding: '10px 14px', background: 'oklch(55% 0.18 145)', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>Go</button>
+        </div>
+      </div>
+
+      <div style={cardStyle}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+          <div>
+            <label style={labelStyle}>Username</label>
+            <input style={fieldStyle} placeholder="e.g. John" value={form.username} onChange={e => inp('username', e.target.value)} />
+          </div>
+          <div>
+            <label style={labelStyle}>Age</label>
+            <input style={fieldStyle} type="number" placeholder="25" value={form.age} onChange={e => inp('age', e.target.value)} />
+          </div>
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <label style={labelStyle}>Gender</label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {['male','female'].map(g => (
+              <button key={g} onClick={() => inp('gender', g)} style={{
+                flex: 1, padding: '9px', borderRadius: 10, border: '1.5px solid',
+                borderColor: form.gender === g ? 'oklch(55% 0.18 145)' : '#e5e7eb',
+                background: form.gender === g ? 'oklch(97% 0.03 145)' : '#fff',
+                color: form.gender === g ? 'oklch(40% 0.18 145)' : '#6b7280',
+                fontWeight: 600, fontSize: 14, cursor: 'pointer', textTransform: 'capitalize'
+              }}>{g}</button>
+            ))}
+          </div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div>
+            <label style={labelStyle}>Weight (kg)</label>
+            <input style={fieldStyle} type="number" placeholder="70" value={form.weight} onChange={e => inp('weight', e.target.value)} />
+          </div>
+          <div>
+            <label style={labelStyle}>Height (cm)</label>
+            <input style={fieldStyle} type="number" placeholder="175" value={form.height} onChange={e => inp('height', e.target.value)} />
+          </div>
+        </div>
+      </div>
+
+      <div style={cardStyle}>
+        <label style={labelStyle}>Activity Level</label>
+        {[
+          ['sedentary','Sedentary','Little or no exercise'],
+          ['light','Lightly Active','1-3 days/week'],
+          ['moderate','Moderately Active','3-5 days/week'],
+          ['active','Very Active','6-7 days/week'],
+          ['very_active','Extra Active','Athlete / physical job'],
+        ].map(([val, label, sub]) => (
+          <div key={val} onClick={() => inp('activity', val)} style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '10px 12px', borderRadius: 10, marginBottom: 6, cursor: 'pointer',
+            background: form.activity === val ? 'oklch(97% 0.03 145)' : '#fafafa',
+            border: '1.5px solid', borderColor: form.activity === val ? 'oklch(55% 0.18 145)' : '#e5e7eb'
+          }}>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 14, color: form.activity === val ? 'oklch(40% 0.18 145)' : '#111' }}>{label}</div>
+              <div style={{ fontSize: 12, color: '#9ca3af' }}>{sub}</div>
+            </div>
+            {form.activity === val && <div style={{ width: 18, height: 18, borderRadius: '50%', background: 'oklch(55% 0.18 145)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <svg width="10" height="10" viewBox="0 0 10 10"><polyline points="1.5,5 4,7.5 8.5,2.5" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            </div>}
+          </div>
+        ))}
+      </div>
+
+      <div style={cardStyle}>
+        <label style={labelStyle}>Primary Goal</label>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {['lose','maintain','gain'].map(g => (
+            <button key={g} onClick={() => inp('goal', g)} style={{
+              flex: 1, padding: '9px 4px', borderRadius: 10, border: '1.5px solid',
+              borderColor: form.goal === g ? 'oklch(55% 0.18 145)' : '#e5e7eb',
+              background: form.goal === g ? 'oklch(97% 0.03 145)' : '#fff',
+              color: form.goal === g ? 'oklch(40% 0.18 145)' : '#6b7280',
+              fontWeight: 600, fontSize: 12, cursor: 'pointer', textTransform: 'capitalize'
+            }}>{g === 'lose' ? '🔥 Lose' : g === 'maintain' ? '⚖️ Maintain' : '💪 Gain'}</button>
+          ))}
+        </div>
+      </div>
+
+      {form.weight && form.height && form.age && (
+        <div style={{ ...cardStyle, background: 'oklch(97% 0.03 145)', border: '1.5px solid oklch(90% 0.06 145)' }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'oklch(40% 0.18 145)', marginBottom: 10 }}>Your Estimates</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 28, fontWeight: 800, color: bmiCat.color }}>{bmi}</div>
+              <div style={{ fontSize: 11, color: '#6b7280' }}>BMI</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: bmiCat.color }}>{bmiCat.label}</div>
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 28, fontWeight: 800, color: 'oklch(40% 0.18 145)' }}>{tdee}</div>
+              <div style={{ fontSize: 11, color: '#6b7280' }}>TDEE (kcal/day)</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#9ca3af' }}>Maintenance</div>
+            </div>
+          </div>
+          <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 6, textAlign: 'center' }}>
+            {[['Protein',targets.protein+'g'],['Carbs',targets.carb+'g'],['Fat',targets.fat+'g']].map(([l,v]) => (
+              <div key={l} style={{ background: '#fff', borderRadius: 8, padding: '6px 4px' }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: '#111' }}>{v}</div>
+                <div style={{ fontSize: 11, color: '#9ca3af' }}>{l}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <button onClick={save} disabled={!form.username} style={{
+        width: '100%', padding: '14px', background: form.username ? 'oklch(55% 0.18 145)' : '#d1d5db',
+        color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700,
+        cursor: form.username ? 'pointer' : 'not-allowed', marginBottom: 8
+      }}>Save Profile</button>
+    </div>
+  );
+
+  // ── VIEW ──
+  const bmi2 = calcBMI(profile);
+  const bmiCat2 = bmiCategory(Number(bmi2));
+  const tdee2 = calcTDEE(profile);
+  const t = getMacroTargets(profile, 'normal');
+
+  return (
+    <div style={{ padding: '0 16px 100px', overflowY: 'auto', height: '100%' }}>
+      <div style={{ paddingTop: 16, paddingBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: '#111' }}>Hey, {profile.username} 👋</div>
+          <div style={{ fontSize: 13, color: '#6b7280' }}>{profile.email || 'Local profile'}</div>
+        </div>
+        <button onClick={() => setTab('setup')} style={{ padding: '8px 14px', background: '#f3f4f6', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer', color: '#374151' }}>Edit</button>
+      </div>
+
+      <div style={{ ...cardStyle, background: 'linear-gradient(135deg, oklch(55% 0.18 145), oklch(50% 0.18 165))', color: '#fff' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, textAlign: 'center' }}>
+          {[[bmi2, bmiCat2.label, 'BMI'],[`${profile.weight}kg`,'Weight',''],[`${profile.height}cm`,'Height','']].map(([v, sub, label]) => (
+            <div key={label || sub}>
+              <div style={{ fontSize: 22, fontWeight: 800 }}>{v}</div>
+              <div style={{ fontSize: 11, opacity: 0.8 }}>{label || sub}</div>
+              {label && <div style={{ fontSize: 11, opacity: 0.8 }}>{sub}</div>}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={cardStyle}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#374151', marginBottom: 10 }}>Daily Targets (Normal Day)</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 8 }}>
+          {[['🔥 TDEE', tdee2+' kcal'],['🎯 Protein', t.protein+'g'],['🌾 Carbs', t.carb+'g'],['🫒 Fat', t.fat+'g'],['🍬 Sugar', '<'+t.sugar+'g'],['🌿 Fiber', t.fiber+'g+']].map(([l,v]) => (
+            <div key={l} style={{ background: '#f9fafb', borderRadius: 10, padding: '10px 12px' }}>
+              <div style={{ fontSize: 12, color: '#6b7280' }}>{l}</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: '#111' }}>{v}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={cardStyle}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#374151', marginBottom: 10 }}>About You</div>
+        {[['Gender', profile.gender], ['Age', profile.age+' yrs'], ['Activity', profile.activity], ['Goal', profile.goal]].map(([l,v]) => (
+          <div key={l} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f3f4f6' }}>
+            <span style={{ fontSize: 14, color: '#6b7280' }}>{l}</span>
+            <span style={{ fontSize: 14, fontWeight: 600, color: '#111', textTransform: 'capitalize' }}>{v}</span>
+          </div>
+        ))}
+      </div>
+
+      <div style={cardStyle}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#374151', marginBottom: 10 }}>Share / Export</div>
+        <button onClick={() => {
+          const msg = `*My Health Profile*\nBMI: ${bmi2} (${bmiCat2.label})\nTDEE: ${tdee2} kcal\nWeight: ${profile.weight}kg | Height: ${profile.height}cm\nGoal: ${profile.goal}`;
+          window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank');
+        }} style={{
+          width: '100%', padding: '11px', background: '#25D366', color: '#fff', border: 'none',
+          borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8
+        }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+          Share Profile via WhatsApp
+        </button>
+      </div>
+
+      <div style={{ textAlign: 'center', padding: '8px 0', color: '#9ca3af', fontSize: 11 }}>
+        All data stored locally on your device
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, { ProfilePage });
+
+</script>
+<script type="text/babel">
+
+// FoodLogPage.jsx
+const MEALS = ['Breakfast', 'Lunch', 'Dinner', 'Snack'];
+
+function AddFoodModal({ meal, onClose, onAdd }) {
+  const library = [...DEFAULT_FOODS, ...DB.get('fgl_custom_foods', []).map(f => ({ portionSize:100, portionUnit:'g', ...f }))];
+  const [search, setSearch] = React.useState('');
+  const [tab, setTab] = React.useState('library');
+  const [custom, setCustom] = React.useState({ name:'', qty:'1', kcal:'', protein:'', fat:'', carb:'', sugar:'', fiber:'', portionSize:'100', portionUnit:'g' });
+  const [qty, setQty] = React.useState({});
+
+  const filtered = library.filter(f => f.name.toLowerCase().includes(search.toLowerCase()));
+
+  function addItem(food, inputQty) {
+    const ps = food.portionSize || 100;
+    const pu = food.portionUnit || 'g';
+    const q = Number(inputQty) || ps;
+    // For weight/volume units: scale by qty/portionSize
+    // For count units: qty = number of portions, scale = qty/1 (since portionSize is 1 for counts, or qty/portionSize)
+    const scale = q / ps;
+    onAdd({
+      id: Date.now() + Math.random(),
+      name: food.name,
+      qty: q, portionUnit: pu, portionSize: ps,
+      kcal: Math.round(food.kcal * scale),
+      protein: f1(food.protein * scale),
+      fat: f1(food.fat * scale),
+      carb: f1(food.carb * scale),
+      sugar: f1(food.sugar * scale),
+      fiber: f1(food.fiber * scale),
+    });
+    onClose();
+  }
+
+  function saveCustom() {
+    const ps = Number(custom.portionSize) || 100;
+    const pu = custom.portionUnit || 'g';
+    const inputQ = Number(custom.qty) || ps;
+    const scale = inputQ / ps;
+    const food = {
+      id: 'c' + Date.now(),
+      name: custom.name, portionSize: ps, portionUnit: pu,
+      kcal: Number(custom.kcal) || 0, protein: Number(custom.protein) || 0,
+      fat: Number(custom.fat) || 0, carb: Number(custom.carb) || 0,
+      sugar: Number(custom.sugar) || 0, fiber: Number(custom.fiber) || 0,
+      category: 'Custom',
+    };
+    const existing = DB.get('fgl_custom_foods', []);
+    DB.set('fgl_custom_foods', [...existing, food]);
+    onAdd({
+      id: Date.now() + Math.random(),
+      name: food.name, qty: inputQ, portionUnit: pu, portionSize: ps,
+      kcal: Math.round(food.kcal * scale),
+      protein: f1(food.protein * scale), fat: f1(food.fat * scale),
+      carb: f1(food.carb * scale), sugar: f1(food.sugar * scale), fiber: f1(food.fiber * scale),
+    });
+    onClose();
+  }
+
+  const COMMON_UNITS = ['g', 'ml', 'piece', 'slice', 'scoop', 'cup', 'tbsp', 'tsp', 'bowl', 'serving'];
+
+  const inp = { width:'100%', padding:'9px 10px', borderRadius:8, border:'1.5px solid #e5e7eb', fontSize:14, outline:'none', background:'#fafafa', boxSizing:'border-box', fontFamily:'inherit' };
+  const tabBtn = (t) => ({
+    flex:1, padding:'8px', border:'none', borderRadius:8, fontWeight:600, fontSize:13, cursor:'pointer',
+    background: tab===t ? 'oklch(55% 0.18 145)' : 'transparent', color: tab===t ? '#fff' : '#6b7280'
+  });
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:100, display:'flex', flexDirection:'column', justifyContent:'flex-end' }}>
+      <div style={{ background:'#fff', borderRadius:'20px 20px 0 0', maxHeight:'82%', display:'flex', flexDirection:'column' }}>
+        <div style={{ padding:'16px 16px 0' }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
+            <div style={{ fontSize:17, fontWeight:700, color:'#111' }}>Add to {meal}</div>
+            <button onClick={onClose} style={{ width:28, height:28, borderRadius:'50%', background:'#f3f4f6', border:'none', fontSize:16, cursor:'pointer' }}>✕</button>
+          </div>
+          <div style={{ display:'flex', gap:4, background:'#f3f4f6', padding:4, borderRadius:10, marginBottom:12 }}>
+            <button style={tabBtn('library')} onClick={() => setTab('library')}>Library</button>
+            <button style={tabBtn('custom')} onClick={() => setTab('custom')}>Custom Food</button>
+          </div>
+        </div>
+
+        {tab === 'library' ? (
+          <div style={{ flex:1, overflow:'hidden', display:'flex', flexDirection:'column', padding:'0 16px 16px' }}>
+            <input style={{ ...inp, marginBottom:10 }} placeholder="Search foods..." value={search} onChange={e => setSearch(e.target.value)} autoFocus />
+            <div style={{ overflowY:'auto', flex:1 }}>
+              {filtered.map(f => {
+                const ps = f.portionSize || 100;
+                const pu = f.portionUnit || 'g';
+                const qv = qty[f.id] !== undefined ? qty[f.id] : String(ps);
+                const inputNum = Number(qv) || ps;
+                const scale = inputNum / ps;
+                const previewKcal = Math.round(f.kcal * scale);
+                return (
+                  <div key={f.id} style={{ display:'flex', alignItems:'center', padding:'10px 0', borderBottom:'1px solid #f3f4f6', gap:8 }}>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:14, fontWeight:600, color:'#111' }}>{f.name}</div>
+                      <div style={{ fontSize:11, color:'#6b7280' }}>{f.kcal} kcal/{ps}{pu} · P:{f.protein}g · C:{f.carb}g · F:{f.fat}g</div>
+                    </div>
+                    <div style={{ display:'flex', alignItems:'center', gap:4, flexShrink:0 }}>
+                      <div style={{ display:'flex', flexDirection:'column', alignItems:'center' }}>
+                        <input style={{ width:52, padding:'5px 4px', borderRadius:8, border:'1.5px solid #e5e7eb', fontSize:13, textAlign:'center', outline:'none' }}
+                          type="number" placeholder={String(ps)}
+                          value={qv} onChange={e => setQty(q => ({...q, [f.id]: e.target.value}))} />
+                        <span style={{ fontSize:9, color:'#9ca3af', marginTop:1 }}>{pu}</span>
+                      </div>
+                      <div style={{ display:'flex', flexDirection:'column', alignItems:'center' }}>
+                        <button onClick={() => addItem(f, qv)} style={{ padding:'6px 10px', background:'oklch(55% 0.18 145)', color:'#fff', border:'none', borderRadius:8, fontWeight:700, fontSize:12, cursor:'pointer' }}>Add</button>
+                        <span style={{ fontSize:9, color:'oklch(50% 0.18 145)', marginTop:1 }}>{previewKcal} kcal</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          <div style={{ flex:1, overflowY:'auto', padding:'0 16px 24px' }}>
+            <input style={{ ...inp, marginBottom:8 }} placeholder="Food name" value={custom.name} onChange={e => setCustom(c=>({...c,name:e.target.value}))} />
+            <div style={{ fontSize:12, fontWeight:600, color:'#6b7280', marginBottom:4 }}>Portion size (macros below are per this portion)</div>
+            <div style={{ display:'flex', gap:8, marginBottom:8 }}>
+              <input type="number" placeholder="100" value={custom.portionSize} onChange={e => setCustom(c=>({...c,portionSize:e.target.value}))}
+                style={{ ...inp, flex:1 }} />
+              <select value={custom.portionUnit} onChange={e => setCustom(c=>({...c,portionUnit:e.target.value}))}
+                style={{ ...inp, flex:1, cursor:'pointer' }}>
+                {COMMON_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+              </select>
+            </div>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:8 }}>
+              {[['kcal','Calories (kcal)'],['protein','Protein (g)'],['fat','Fat (g)'],['carb','Net Carb (g)'],['sugar','Sugar (g)'],['fiber','Fiber (g)']].map(([k,label]) => (
+                <input key={k} style={inp} type="number" placeholder={label} value={custom[k]} onChange={e => setCustom(c=>({...c,[k]:e.target.value}))} />
+              ))}
+            </div>
+            <div style={{ fontSize:12, fontWeight:600, color:'#6b7280', marginBottom:4 }}>Qty to log now</div>
+            <div style={{ display:'flex', gap:8, marginBottom:12 }}>
+              <input type="number" placeholder="1" value={custom.qty} onChange={e => setCustom(c=>({...c,qty:e.target.value}))}
+                style={{ ...inp, flex:1 }} />
+              <div style={{ flex:1, padding:'9px 10px', background:'#f3f4f6', borderRadius:8, fontSize:14, color:'#6b7280', display:'flex', alignItems:'center' }}>
+                {custom.portionUnit}
+              </div>
+            </div>
+            <button onClick={saveCustom} disabled={!custom.name || !custom.kcal} style={{
+              width:'100%', padding:'12px', background: custom.name&&custom.kcal ? 'oklch(55% 0.18 145)' : '#d1d5db',
+              color:'#fff', border:'none', borderRadius:12, fontSize:15, fontWeight:700, cursor:'pointer'
+            }}>Add & Save to Library</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function FoodLogPage({ profile }) {
+  const [date, setDate] = React.useState(today());
+  const [mode, setMode] = React.useState('normal');
+  const [addingTo, setAddingTo] = React.useState(null);
+  const [view, setView] = React.useState('daily');
+  const [logs, setLogs] = React.useState(() => DB.get('fgl_food_logs', {}));
+
+  const targets = getMacroTargets(profile, mode);
+
+  function saveLogs(next) { DB.set('fgl_food_logs', next); setLogs(next); }
+
+  function addEntry(meal, entry) {
+    const dayLog = logs[date] || {};
+    const mealLog = dayLog[meal] || [];
+    saveLogs({ ...logs, [date]: { ...dayLog, [meal]: [...mealLog, entry] } });
+  }
+
+  function removeEntry(meal, idx) {
+    const dayLog = { ...logs[date] };
+    dayLog[meal] = dayLog[meal].filter((_, i) => i !== idx);
+    saveLogs({ ...logs, [date]: dayLog });
+  }
+
+  const dayLog = logs[date] || {};
+
+  function sumMacros(entries) {
+    return entries.reduce((a, e) => ({
+      kcal: a.kcal + (e.kcal||0),
+      protein: f1(a.protein + (e.protein||0)),
+      fat: f1(a.fat + (e.fat||0)),
+      carb: f1(a.carb + (e.carb||0)),
+      sugar: f1(a.sugar + (e.sugar||0)),
+      fiber: f1(a.fiber + (e.fiber||0))
+    }), { kcal:0, protein:0, fat:0, carb:0, sugar:0, fiber:0 });
+  }
+
+  const allEntries = MEALS.flatMap(m => dayLog[m] || []);
+  const totals = sumMacros(allEntries);
+
+  const monthKey = date.slice(0, 7);
+  const monthDays = Object.keys(logs).filter(d => d.startsWith(monthKey)).sort();
+
+  // ── Image share ──
+  function shareDaily() {
+    const mealRows = MEALS.map(m => {
+      const items = dayLog[m] || [];
+      if (!items.length) return null;
+      const s = sumMacros(items);
+      return [m, s.kcal, f1(s.protein), f1(s.carb), f1(s.fat), f1(s.sugar), f1(s.fiber)];
+    }).filter(Boolean);
+
+    const canvas = drawTableCanvas({
+      title: `Food Log — ${date}`,
+      subtitle: `${mode.charAt(0).toUpperCase()+mode.slice(1)} day · Target: ${targets.kcal} kcal`,
+      headers: ['Meal','Kcal','P(g)','C(g)','F(g)','Su','Fi'],
+      rows: mealRows,
+      footerRow: ['Total', totals.kcal, totals.protein, totals.carb, totals.fat, totals.sugar, totals.fiber],
+      accentColor: 'oklch(50% 0.18 145)'
+    });
+    shareAsImage(canvas, `food-log-${date}.png`);
+  }
+
+  function shareMonthly() {
+    const rows = monthDays.map(d => {
+      const dl = logs[d] || {};
+      const all = MEALS.flatMap(m => dl[m] || []);
+      const s = sumMacros(all);
+      return [formatDate(d), s.kcal, f1(s.protein), f1(s.carb), f1(s.fat)];
+    });
+    const canvas = drawTableCanvas({
+      title: `Monthly Food Log — ${monthKey}`,
+      subtitle: `${rows.length} days logged`,
+      headers: ['Date','Kcal','P(g)','C(g)','F(g)'],
+      rows,
+      accentColor: 'oklch(50% 0.18 145)'
+    });
+    shareAsImage(canvas, `food-monthly-${monthKey}.png`);
+  }
+
+  const cardStyle = { background:'#fff', borderRadius:16, padding:'14px', marginBottom:10, boxShadow:'0 1px 4px rgba(0,0,0,0.07)' };
+  const modeColors = { normal:'oklch(55% 0.18 145)', diet:'oklch(55% 0.18 25)', training:'oklch(55% 0.18 240)' };
+
+  return (
+    <div style={{ height:'100%', display:'flex', flexDirection:'column', overflow:'hidden' }}>
+      <div style={{ padding:'12px 16px 0', flexShrink:0 }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+          <button onClick={() => { const d=new Date(date); d.setDate(d.getDate()-1); setDate(d.toISOString().slice(0,10)); }} style={{ width:30,height:30,borderRadius:'50%',border:'none',background:'#f3f4f6',fontSize:16,cursor:'pointer' }}>‹</button>
+          <div style={{ fontWeight:700, fontSize:15, color:'#111' }}>{date === today() ? 'Today' : formatDate(date)}</div>
+          <button onClick={() => { const d=new Date(date); d.setDate(d.getDate()+1); setDate(d.toISOString().slice(0,10)); }} style={{ width:30,height:30,borderRadius:'50%',border:'none',background:'#f3f4f6',fontSize:16,cursor:'pointer' }}>›</button>
+        </div>
+        <div style={{ display:'flex', gap:6, marginBottom:10 }}>
+          {['normal','diet','training'].map(m => (
+            <button key={m} onClick={() => setMode(m)} style={{
+              flex:1, padding:'7px 4px', borderRadius:20, border:'1.5px solid',
+              borderColor: mode===m ? modeColors[m] : '#e5e7eb',
+              background: mode===m ? modeColors[m] : '#fff',
+              color: mode===m ? '#fff' : '#6b7280',
+              fontWeight:700, fontSize:11, cursor:'pointer', textTransform:'capitalize', transition:'all 0.2s'
+            }}>{m==='normal'?'☀️':m==='diet'?'🔥':'💪'} {m.charAt(0).toUpperCase()+m.slice(1)}</button>
+          ))}
+        </div>
+        <div style={{ display:'flex', gap:4, background:'#f3f4f6', padding:3, borderRadius:10, marginBottom:10 }}>
+          {['daily','monthly'].map(v => (
+            <button key={v} onClick={() => setView(v)} style={{
+              flex:1, padding:'6px', border:'none', borderRadius:8, fontWeight:600, fontSize:12, cursor:'pointer',
+              background: view===v ? '#fff' : 'transparent', color: view===v ? '#111' : '#9ca3af',
+              boxShadow: view===v ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
+            }}>{v.charAt(0).toUpperCase()+v.slice(1)}</button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ flex:1, overflowY:'auto', padding:'0 16px 100px' }}>
+        {view === 'daily' ? (
+          <>
+            {/* Macro ring summary */}
+            <div style={{ ...cardStyle, background:'linear-gradient(135deg,oklch(55% 0.18 145),oklch(50% 0.18 165))' }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+                <div>
+                  <div style={{ fontSize:28, fontWeight:800, color:'#fff' }}>{totals.kcal}</div>
+                  <div style={{ fontSize:11, color:'rgba(255,255,255,0.75)' }}>of {targets.kcal} kcal</div>
+                </div>
+                <div style={{ width:56, height:56, position:'relative' }}>
+                  <svg viewBox="0 0 36 36" width="56" height="56">
+                    <circle cx="18" cy="18" r="15.9" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="3.5"/>
+                    <circle cx="18" cy="18" r="15.9" fill="none" stroke="#fff" strokeWidth="3.5"
+                      strokeDasharray={`${Math.min(100, Math.round(totals.kcal / Math.max(targets.kcal, 1) * 100))} 100`}
+                      strokeDashoffset="25" strokeLinecap="round"/>
+                  </svg>
+                  <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, fontWeight:700, color:'#fff' }}>
+                    {Math.min(100, Math.round(totals.kcal / Math.max(targets.kcal,1) * 100))}%
+                  </div>
+                </div>
+              </div>
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8 }}>
+                {[['Protein',totals.protein,targets.protein,'#93c5fd'],['Carbs',totals.carb,targets.carb,'#c4b5fd'],['Fat',totals.fat,targets.fat,'#fdba74']].map(([l,v,t,c]) => (
+                  <div key={l} style={{ background:'rgba(255,255,255,0.15)', borderRadius:8, padding:'6px 8px' }}>
+                    <div style={{ fontSize:10, color:'rgba(255,255,255,0.75)' }}>{l}</div>
+                    <div style={{ fontSize:14, fontWeight:700, color:'#fff' }}>{v}g <span style={{ fontSize:10, opacity:0.7 }}>/{t}g</span></div>
+                    <div style={{ height:3, background:'rgba(255,255,255,0.2)', borderRadius:99, marginTop:4 }}>
+                      <div style={{ height:'100%', width:Math.min(100,Math.round(v/Math.max(t,1)*100))+'%', background:'#fff', borderRadius:99 }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Hints */}
+            {profile.weight && (
+              <div style={{ ...cardStyle, background:'oklch(98% 0.02 60)', border:'1px solid oklch(93% 0.05 60)', padding:'10px 12px' }}>
+                <div style={{ fontSize:11, fontWeight:700, color:'oklch(50% 0.18 60)', marginBottom:6 }}>💡 {mode.charAt(0).toUpperCase()+mode.slice(1)} Day Targets</div>
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:6 }}>
+                  {[['Kcal',targets.kcal],['Protein',targets.protein+'g'],['Carbs',targets.carb+'g'],['Fat',targets.fat+'g'],['Sugar','<'+targets.sugar+'g'],['Fiber',targets.fiber+'g+']].map(([l,v]) => (
+                    <div key={l} style={{ fontSize:11, color:'#6b7280' }}><span style={{ fontWeight:700, color:'#374151' }}>{v}</span> {l}</div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Meals */}
+            {MEALS.map(meal => {
+              const items = dayLog[meal] || [];
+              const mTotals = sumMacros(items);
+              return (
+                <div key={meal} style={cardStyle}>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: items.length ? 8 : 0 }}>
+                    <div>
+                      <div style={{ fontSize:15, fontWeight:700, color:'#111' }}>{meal}</div>
+                      {items.length > 0 && <div style={{ fontSize:12, color:'#6b7280' }}>{mTotals.kcal} kcal · P:{mTotals.protein}g · C:{mTotals.carb}g</div>}
+                    </div>
+                    <button onClick={() => setAddingTo(meal)} style={{ width:30, height:30, borderRadius:'50%', background:'oklch(97% 0.03 145)', border:'none', fontSize:18, cursor:'pointer', color:'oklch(45% 0.18 145)', display:'flex', alignItems:'center', justifyContent:'center' }}>+</button>
+                  </div>
+                  {items.map((item, i) => (
+                    <div key={i} style={{ display:'flex', alignItems:'center', padding:'6px 0', borderTop:'1px solid #f3f4f6' }}>
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontSize:13, fontWeight:600, color:'#111' }}>{item.name}
+                          <span style={{ color:'#9ca3af', fontWeight:400 }}> ({item.qty} {item.portionUnit || 'g'})</span>
+                        </div>
+                        <div style={{ fontSize:11, color:'#6b7280' }}>{item.kcal} kcal · P:{item.protein}g · C:{item.carb}g · F:{item.fat}g</div>
+                      </div>
+                      <button onClick={() => removeEntry(meal, i)} style={{ color:'#d1d5db', border:'none', background:'none', fontSize:16, cursor:'pointer', padding:'4px 8px' }}>✕</button>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+
+            {/* Daily summary table */}
+            <div style={cardStyle}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+                <div style={{ fontSize:13, fontWeight:700, color:'#374151' }}>Daily Summary</div>
+                <button onClick={shareDaily} style={{ padding:'5px 10px', background:'#25D366', color:'#fff', border:'none', borderRadius:8, fontSize:11, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}>
+                  📷 Share
+                </button>
+              </div>
+              <div style={{ overflowX:'auto' }}>
+                <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
+                  <thead>
+                    <tr style={{ background:'#f9fafb' }}>
+                      {['Meal','Kcal','P(g)','C(g)','F(g)','Su','Fi'].map(h => (
+                        <th key={h} style={{ padding:'6px 6px', textAlign: h==='Meal'?'left':'center', fontWeight:600, color:'#6b7280', whiteSpace:'nowrap' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {MEALS.map(meal => {
+                      const items = dayLog[meal] || [];
+                      if (!items.length) return null;
+                      const s = sumMacros(items);
+                      return (
+                        <tr key={meal} style={{ borderTop:'1px solid #f3f4f6' }}>
+                          <td style={{ padding:'6px 6px', fontWeight:600, color:'#111' }}>{meal}</td>
+                          {[s.kcal, f1(s.protein), f1(s.carb), f1(s.fat), f1(s.sugar), f1(s.fiber)].map((v,i) => (
+                            <td key={i} style={{ padding:'6px 6px', textAlign:'center', color:'#374151' }}>{v}</td>
+                          ))}
+                        </tr>
+                      );
+                    }).filter(Boolean)}
+                    <tr style={{ borderTop:'2px solid #e5e7eb', background:'#f9fafb' }}>
+                      <td style={{ padding:'6px 6px', fontWeight:700, color:'#111' }}>Total</td>
+                      {[totals.kcal, f1(totals.protein), f1(totals.carb), f1(totals.fat), f1(totals.sugar), f1(totals.fiber)].map((v,i) => (
+                        <td key={i} style={{ padding:'6px 6px', textAlign:'center', fontWeight:700, color: i===0?'oklch(45% 0.18 145)':'#111' }}>{v}</td>
+                      ))}
+                    </tr>
+                    <tr style={{ borderTop:'1px solid #e5e7eb' }}>
+                      <td style={{ padding:'5px 6px', fontSize:10, color:'#9ca3af' }}>Target</td>
+                      {[targets.kcal, targets.protein, targets.carb, targets.fat, targets.sugar, targets.fiber].map((v,i) => (
+                        <td key={i} style={{ padding:'5px 6px', textAlign:'center', fontSize:10, color:'#9ca3af' }}>{v}</td>
+                      ))}
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div style={cardStyle}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+              <div style={{ fontSize:13, fontWeight:700, color:'#374151' }}>Monthly — {monthKey}</div>
+              <button onClick={shareMonthly} style={{ padding:'5px 10px', background:'#25D366', color:'#fff', border:'none', borderRadius:8, fontSize:11, fontWeight:700, cursor:'pointer' }}>📷 Share</button>
+            </div>
+            <div style={{ overflowX:'auto' }}>
+              <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
+                <thead>
+                  <tr style={{ background:'#f9fafb' }}>
+                    {['Date','Kcal','P(g)','C(g)','F(g)'].map(h => (
+                      <th key={h} style={{ padding:'6px 8px', textAlign: h==='Date'?'left':'center', fontWeight:600, color:'#6b7280' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {monthDays.length === 0 && <tr><td colSpan={5} style={{ padding:'20px', textAlign:'center', color:'#9ca3af' }}>No data this month</td></tr>}
+                  {monthDays.map(d => {
+                    const dl = logs[d] || {};
+                    const all = MEALS.flatMap(m => dl[m] || []);
+                    const s = sumMacros(all);
+                    return (
+                      <tr key={d} onClick={() => { setDate(d); setView('daily'); }} style={{ borderTop:'1px solid #f3f4f6', cursor:'pointer' }}>
+                        <td style={{ padding:'7px 8px', fontWeight:600, color:'#111' }}>{formatDate(d)}</td>
+                        <td style={{ padding:'7px 8px', textAlign:'center', color: s.kcal > targets.kcal ? '#ef4444' : 'oklch(45% 0.18 145)', fontWeight:600 }}>{s.kcal}</td>
+                        <td style={{ padding:'7px 8px', textAlign:'center', color:'#374151' }}>{f1(s.protein)}g</td>
+                        <td style={{ padding:'7px 8px', textAlign:'center', color:'#374151' }}>{f1(s.carb)}g</td>
+                        <td style={{ padding:'7px 8px', textAlign:'center', color:'#374151' }}>{f1(s.fat)}g</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {addingTo && (
+        <AddFoodModal meal={addingTo} onClose={() => setAddingTo(null)} onAdd={(e) => addEntry(addingTo, e)} />
+      )}
+    </div>
+  );
+}
+
+Object.assign(window, { FoodLogPage });
+
+</script>
+<script type="text/babel">
+
+// GymLogPage.jsx
+
+const EXERCISE_CATEGORIES = ['Chest','Back','Shoulders','Arms','Legs','Core','Cardio','Full Body'];
+
+const DEFAULT_EXERCISES = [
+  'Bench Press','Incline Bench Press','Dumbbell Fly','Push Up',
+  'Lat Pull Down','Seated Row','Barbell Row','Pull Up','Deadlift',
+  'Overhead Press','Lateral Raise','Front Raise','Face Pull',
+  'Bicep Curl','Tricep Pushdown','Hammer Curl','Skull Crusher',
+  'Squat','Leg Press','Leg Curl','Leg Extension','Lunges','Hip Thrust','Calf Raise',
+  'Plank','Crunch','Cable Crunch','Russian Twist',
+  'Treadmill','Cycling','Rowing Machine','Jump Rope',
+];
+
+function SetRow({ set, idx, onChange, onRemove, hint }) {
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:8, padding:'6px 0', borderBottom:'1px solid #f9fafb' }}>
+      <div style={{ width:24, height:24, borderRadius:'50%', background:'oklch(97% 0.04 50)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:700, color:'oklch(45% 0.18 50)', flexShrink:0 }}>
+        {idx+1}
+      </div>
+      <div style={{ flex:1, display:'flex', gap:6 }}>
+        <div style={{ flex:1 }}>
+          <input
+            type="number" placeholder={hint?.weight || 'kg'}
+            value={set.weight || ''}
+            onChange={e => onChange({ ...set, weight: e.target.value })}
+            style={{ width:'100%', padding:'7px 8px', borderRadius:8, border:'1.5px solid #e5e7eb', fontSize:14, outline:'none', background:'#fafafa', textAlign:'center', fontFamily:'inherit' }}
+          />
+          <div style={{ fontSize:9, textAlign:'center', color:'#9ca3af', marginTop:2 }}>kg</div>
+        </div>
+        <div style={{ display:'flex', alignItems:'center', color:'#d1d5db', fontSize:14, paddingBottom:14 }}>×</div>
+        <div style={{ flex:1 }}>
+          <input
+            type="number" placeholder={hint?.reps || 'reps'}
+            value={set.reps || ''}
+            onChange={e => onChange({ ...set, reps: e.target.value })}
+            style={{ width:'100%', padding:'7px 8px', borderRadius:8, border:'1.5px solid #e5e7eb', fontSize:14, outline:'none', background:'#fafafa', textAlign:'center', fontFamily:'inherit' }}
+          />
+          <div style={{ fontSize:9, textAlign:'center', color:'#9ca3af', marginTop:2 }}>reps</div>
+        </div>
+      </div>
+      {hint && (!set.weight || !set.reps) && (
+        <button onClick={() => onChange({ ...set, weight: hint.weight, reps: hint.reps })} style={{ fontSize:10, padding:'4px 8px', background:'oklch(97% 0.04 50)', color:'oklch(45% 0.18 50)', border:'1px solid oklch(90% 0.08 50)', borderRadius:6, cursor:'pointer', fontWeight:600, flexShrink:0 }}>
+          {hint.weight}×{hint.reps}
+        </button>
+      )}
+      <button onClick={onRemove} style={{ color:'#e5e7eb', border:'none', background:'none', fontSize:16, cursor:'pointer', flexShrink:0, padding:'0 4px' }}>✕</button>
+    </div>
+  );
+}
+
+function AddExerciseModal({ onAdd, onClose }) {
+  const [search, setSearch] = React.useState('');
+  const [custom, setCustom] = React.useState('');
+  const exercises = [...DEFAULT_EXERCISES, ...DB.get('fgl_custom_exercises', [])];
+  const filtered = exercises.filter(e => e.toLowerCase().includes(search.toLowerCase()));
+
+  function add(name) {
+    if (!name.trim()) return;
+    onAdd(name.trim());
+    onClose();
+  }
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:100, display:'flex', flexDirection:'column', justifyContent:'flex-end' }}>
+      <div style={{ background:'#fff', borderRadius:'20px 20px 0 0', maxHeight:'75%', display:'flex', flexDirection:'column' }}>
+        <div style={{ padding:'16px' }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
+            <div style={{ fontSize:17, fontWeight:700 }}>Add Exercise</div>
+            <button onClick={onClose} style={{ width:28, height:28, borderRadius:'50%', background:'#f3f4f6', border:'none', fontSize:16, cursor:'pointer' }}>✕</button>
+          </div>
+          <input autoFocus value={search} onChange={e => setSearch(e.target.value)} placeholder="Search exercises..." style={{ width:'100%', padding:'10px 12px', borderRadius:10, border:'1.5px solid #e5e7eb', fontSize:14, outline:'none', background:'#fafafa', boxSizing:'border-box', fontFamily:'inherit' }} />
+        </div>
+        <div style={{ overflowY:'auto', flex:1, padding:'0 16px' }}>
+          {search && !filtered.some(e => e.toLowerCase() === search.toLowerCase()) && (
+            <div onClick={() => { DB.set('fgl_custom_exercises', [...DB.get('fgl_custom_exercises',[]), search]); add(search); }}
+              style={{ padding:'12px', borderRadius:10, background:'oklch(97% 0.04 50)', marginBottom:8, cursor:'pointer', display:'flex', alignItems:'center', gap:8 }}>
+              <span style={{ fontSize:18 }}>＋</span>
+              <div>
+                <div style={{ fontSize:14, fontWeight:600, color:'oklch(40% 0.18 50)' }}>Add "{search}"</div>
+                <div style={{ fontSize:11, color:'#9ca3af' }}>Create custom exercise</div>
+              </div>
+            </div>
+          )}
+          {filtered.map(ex => (
+            <div key={ex} onClick={() => add(ex)} style={{ padding:'12px 4px', borderBottom:'1px solid #f3f4f6', cursor:'pointer', fontSize:14, fontWeight:500, color:'#111', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+              {ex}
+              <span style={{ color:'#d1d5db', fontSize:16 }}>›</span>
+            </div>
+          ))}
+        </div>
+        <div style={{ padding:'12px 16px', borderTop:'1px solid #f3f4f6' }}>
+          <div style={{ display:'flex', gap:8 }}>
+            <input value={custom} onChange={e => setCustom(e.target.value)} placeholder="Type custom exercise name..." style={{ flex:1, padding:'10px', borderRadius:10, border:'1.5px solid #e5e7eb', fontSize:14, outline:'none', fontFamily:'inherit' }} />
+            <button onClick={() => add(custom)} style={{ padding:'10px 16px', background:'oklch(55% 0.18 50)', color:'#fff', border:'none', borderRadius:10, fontWeight:700, fontSize:14, cursor:'pointer' }}>Add</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GymLogPage() {
+  const [date, setDate] = React.useState(today());
+  const [sessions, setSessions] = React.useState(() => DB.get('fgl_gym_logs', {}));
+  const [showAdd, setShowAdd] = React.useState(false);
+  const [view, setView] = React.useState('session');
+  const [notes, setNotes] = React.useState('');
+
+  function saveSessions(next) { DB.set('fgl_gym_logs', next); setSessions(next); }
+
+  const session = sessions[date] || { exercises: [], notes: '' };
+
+  function addExercise(name) {
+    const ex = { id: Date.now(), name, sets: [{ weight:'', reps:'' }] };
+    const updated = { ...session, exercises: [...session.exercises, ex] };
+    saveSessions({ ...sessions, [date]: updated });
+  }
+
+  function updateExercise(exId, newEx) {
+    const updated = { ...session, exercises: session.exercises.map(e => e.id === exId ? newEx : e) };
+    saveSessions({ ...sessions, [date]: updated });
+  }
+
+  function removeExercise(exId) {
+    const updated = { ...session, exercises: session.exercises.filter(e => e.id !== exId) };
+    saveSessions({ ...sessions, [date]: updated });
+  }
+
+  function addSet(exId) {
+    const ex = session.exercises.find(e => e.id === exId);
+    const lastSet = ex.sets[ex.sets.length - 1];
+    updateExercise(exId, { ...ex, sets: [...ex.sets, { weight: lastSet?.weight || '', reps: lastSet?.reps || '' }] });
+  }
+
+  function updateSet(exId, setIdx, newSet) {
+    const ex = session.exercises.find(e => e.id === exId);
+    const sets = ex.sets.map((s, i) => i === setIdx ? newSet : s);
+    updateExercise(exId, { ...ex, sets });
+  }
+
+  function removeSet(exId, setIdx) {
+    const ex = session.exercises.find(e => e.id === exId);
+    if (ex.sets.length <= 1) return;
+    updateExercise(exId, { ...ex, sets: ex.sets.filter((_, i) => i !== setIdx) });
+  }
+
+  // Get last logged data for an exercise (for hints)
+  function getLastSession(exName) {
+    const pastDates = Object.keys(sessions).filter(d => d < date).sort().reverse();
+    for (const d of pastDates) {
+      const ex = sessions[d]?.exercises?.find(e => e.name === exName);
+      if (ex) return ex;
+    }
+    return null;
+  }
+
+  // Session totals
+  const totalSets = session.exercises.reduce((a, e) => a + e.sets.filter(s => s.weight && s.reps).length, 0);
+  const totalVolume = session.exercises.reduce((a, e) => a + e.sets.reduce((b, s) => b + (Number(s.weight) * Number(s.reps) || 0), 0), 0);
+
+  const monthKey = date.slice(0, 7);
+  const monthDays = Object.keys(sessions).filter(d => d.startsWith(monthKey)).sort();
+
+  function whatsappShare() {
+    const lines = [`*Gym Session — ${date}*`, `Sets: ${totalSets} | Volume: ${totalVolume}kg`, ``];
+    session.exercises.forEach(ex => {
+      lines.push(`*${ex.name}:*`);
+      ex.sets.forEach((s, i) => { if (s.weight && s.reps) lines.push(`  Set ${i+1}: ${s.weight}kg × ${s.reps}`); });
+    });
+    if (session.notes) lines.push(``, `Notes: ${session.notes}`);
+    window.open('https://wa.me/?text=' + encodeURIComponent(lines.join('\n')), '_blank');
+  }
+
+  const cardStyle = { background:'#fff', borderRadius:16, padding:'14px', marginBottom:10, boxShadow:'0 1px 4px rgba(0,0,0,0.07)' };
+
+  return (
+    <div style={{ height:'100%', display:'flex', flexDirection:'column', overflow:'hidden' }}>
+      <div style={{ padding:'12px 16px 0', flexShrink:0 }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+          <button onClick={() => { const d=new Date(date); d.setDate(d.getDate()-1); setDate(d.toISOString().slice(0,10)); }} style={{ width:30,height:30,borderRadius:'50%',border:'none',background:'#f3f4f6',fontSize:16,cursor:'pointer' }}>‹</button>
+          <div style={{ fontWeight:700, fontSize:15, color:'#111' }}>{date === today() ? 'Today' : formatDate(date)}</div>
+          <button onClick={() => { const d=new Date(date); d.setDate(d.getDate()+1); setDate(d.toISOString().slice(0,10)); }} style={{ width:30,height:30,borderRadius:'50%',border:'none',background:'#f3f4f6',fontSize:16,cursor:'pointer' }}>›</button>
+        </div>
+        <div style={{ display:'flex', gap:4, background:'#f3f4f6', padding:3, borderRadius:10, marginBottom:10 }}>
+          {['session','summary','monthly'].map(v => (
+            <button key={v} onClick={() => setView(v)} style={{
+              flex:1, padding:'6px', border:'none', borderRadius:8, fontWeight:600, fontSize:11, cursor:'pointer',
+              background: view===v ? '#fff' : 'transparent', color: view===v ? '#111' : '#9ca3af',
+              boxShadow: view===v ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', textTransform:'capitalize'
+            }}>{v}</button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ flex:1, overflowY:'auto', padding:'0 16px 100px' }}>
+        {view === 'session' && (
+          <>
+            {/* Stats banner */}
+            <div style={{ ...cardStyle, background:'linear-gradient(135deg, oklch(55% 0.18 50), oklch(50% 0.18 30))', marginBottom:10 }}>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8, textAlign:'center' }}>
+                <div><div style={{ fontSize:22, fontWeight:800, color:'#fff' }}>{session.exercises.length}</div><div style={{ fontSize:11, color:'rgba(255,255,255,0.75)' }}>Exercises</div></div>
+                <div><div style={{ fontSize:22, fontWeight:800, color:'#fff' }}>{totalSets}</div><div style={{ fontSize:11, color:'rgba(255,255,255,0.75)' }}>Sets Done</div></div>
+                <div><div style={{ fontSize:22, fontWeight:800, color:'#fff' }}>{totalVolume > 999 ? (totalVolume/1000).toFixed(1)+'t' : totalVolume}</div><div style={{ fontSize:11, color:'rgba(255,255,255,0.75)' }}>Vol (kg)</div></div>
+              </div>
+            </div>
+
+            {session.exercises.map(ex => {
+              const last = getLastSession(ex.name);
+              const lastSets = last?.sets || [];
+              return (
+                <div key={ex.id} style={cardStyle}>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+                    <div style={{ fontSize:15, fontWeight:700, color:'#111' }}>{ex.name}</div>
+                    <button onClick={() => removeExercise(ex.id)} style={{ color:'#d1d5db', border:'none', background:'none', fontSize:14, cursor:'pointer' }}>Remove</button>
+                  </div>
+                  {last && (
+                    <div style={{ fontSize:11, color:'oklch(50% 0.18 50)', background:'oklch(98% 0.03 50)', padding:'5px 8px', borderRadius:6, marginBottom:8 }}>
+                      💡 Last: {lastSets.filter(s=>s.weight&&s.reps).map((s,i)=>`S${i+1}: ${s.weight}×${s.reps}`).join(' · ')}
+                    </div>
+                  )}
+                  {ex.sets.map((set, i) => (
+                    <SetRow key={i} set={set} idx={i}
+                      hint={lastSets[i] ? { weight: lastSets[i].weight, reps: lastSets[i].reps } : null}
+                      onChange={ns => updateSet(ex.id, i, ns)}
+                      onRemove={() => removeSet(ex.id, i)}
+                    />
+                  ))}
+                  <button onClick={() => addSet(ex.id)} style={{ width:'100%', padding:'8px', marginTop:8, background:'oklch(98% 0.03 50)', border:'1px dashed oklch(85% 0.08 50)', borderRadius:8, fontSize:13, fontWeight:600, color:'oklch(45% 0.18 50)', cursor:'pointer' }}>
+                    + Add Set
+                  </button>
+                </div>
+              );
+            })}
+
+            <button onClick={() => setShowAdd(true)} style={{
+              width:'100%', padding:'14px', background:'oklch(55% 0.18 50)', color:'#fff',
+              border:'none', borderRadius:14, fontSize:15, fontWeight:700, cursor:'pointer', marginBottom:10
+            }}>+ Add Exercise</button>
+
+            <div style={cardStyle}>
+              <div style={{ fontSize:13, fontWeight:600, color:'#374151', marginBottom:6 }}>Session Notes</div>
+              <textarea value={session.notes || ''} onChange={e => saveSessions({ ...sessions, [date]: { ...session, notes: e.target.value } })}
+                placeholder="How did it go? Feeling strong today? Any PBs? ..."
+                style={{ width:'100%', minHeight:70, padding:'8px 10px', borderRadius:10, border:'1.5px solid #e5e7eb', fontSize:13, outline:'none', resize:'none', fontFamily:'inherit', boxSizing:'border-box', color:'#374151' }} />
+            </div>
+
+            <button onClick={whatsappShare} style={{
+              width:'100%', padding:'12px', background:'#25D366', color:'#fff', border:'none',
+              borderRadius:12, fontWeight:700, fontSize:14, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:8
+            }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="#fff"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+              Share Session
+            </button>
+          </>
+        )}
+
+        {view === 'summary' && (
+          <div style={cardStyle}>
+            <div style={{ fontSize:14, fontWeight:700, color:'#374151', marginBottom:10 }}>Session Summary — {formatDate(date)}</div>
+            {session.exercises.length === 0 ? (
+              <div style={{ textAlign:'center', color:'#9ca3af', padding:'30px 0' }}>No exercises logged</div>
+            ) : (
+              <>
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginBottom:12 }}>
+                  {[['Exercises', session.exercises.length],['Sets', totalSets],['Volume', totalVolume+'kg']].map(([l,v]) => (
+                    <div key={l} style={{ textAlign:'center', background:'#f9fafb', borderRadius:10, padding:'10px' }}>
+                      <div style={{ fontSize:18, fontWeight:800, color:'oklch(45% 0.18 50)' }}>{v}</div>
+                      <div style={{ fontSize:11, color:'#9ca3af' }}>{l}</div>
+                    </div>
+                  ))}
+                </div>
+                <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
+                  <thead>
+                    <tr style={{ background:'#f9fafb' }}>
+                      {['Exercise','Sets','Best Set','Volume'].map(h => (
+                        <th key={h} style={{ padding:'7px 8px', textAlign: h==='Exercise'?'left':'center', fontWeight:600, color:'#6b7280', fontSize:11 }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {session.exercises.map(ex => {
+                      const validSets = ex.sets.filter(s => s.weight && s.reps);
+                      const best = validSets.reduce((a,s) => Number(s.weight) > Number(a.weight||0) ? s : a, {});
+                      const vol = validSets.reduce((a,s) => a + Number(s.weight)*Number(s.reps), 0);
+                      return (
+                        <tr key={ex.id} style={{ borderTop:'1px solid #f3f4f6' }}>
+                          <td style={{ padding:'8px', fontWeight:600, color:'#111', fontSize:12 }}>{ex.name}</td>
+                          <td style={{ padding:'8px', textAlign:'center', color:'#374151' }}>{validSets.length}</td>
+                          <td style={{ padding:'8px', textAlign:'center', color:'oklch(45% 0.18 50)', fontWeight:600 }}>{best.weight ? `${best.weight}×${best.reps}` : '—'}</td>
+                          <td style={{ padding:'8px', textAlign:'center', color:'#374151' }}>{vol}kg</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                {session.notes && <div style={{ marginTop:10, padding:'8px 10px', background:'#f9fafb', borderRadius:8, fontSize:12, color:'#374151' }}><span style={{ fontWeight:600 }}>Notes: </span>{session.notes}</div>}
+              </>
+            )}
+          </div>
+        )}
+
+        {view === 'monthly' && (
+          <div style={cardStyle}>
+            <div style={{ fontSize:14, fontWeight:700, color:'#374151', marginBottom:10 }}>Monthly Log — {monthKey}</div>
+            {monthDays.length === 0 ? (
+              <div style={{ textAlign:'center', color:'#9ca3af', padding:'30px 0' }}>No sessions logged this month</div>
+            ) : (
+              <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
+                <thead>
+                  <tr style={{ background:'#f9fafb' }}>
+                    {['Date','Exercises','Sets','Volume'].map(h => (
+                      <th key={h} style={{ padding:'7px 8px', textAlign: h==='Date'?'left':'center', fontWeight:600, color:'#6b7280', fontSize:11 }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {monthDays.map(d => {
+                    const s = sessions[d] || { exercises:[] };
+                    const sets = s.exercises?.reduce((a,e) => a + e.sets.filter(x=>x.weight&&x.reps).length, 0) || 0;
+                    const vol = s.exercises?.reduce((a,e) => a + e.sets.reduce((b,x)=>b+Number(x.weight)*Number(x.reps),0), 0) || 0;
+                    return (
+                      <tr key={d} onClick={() => { setDate(d); setView('session'); }} style={{ borderTop:'1px solid #f3f4f6', cursor:'pointer' }}>
+                        <td style={{ padding:'8px', fontWeight:600, color:'#111' }}>{formatDate(d)}</td>
+                        <td style={{ padding:'8px', textAlign:'center', color:'#374151' }}>{s.exercises?.length || 0}</td>
+                        <td style={{ padding:'8px', textAlign:'center', color:'#374151' }}>{sets}</td>
+                        <td style={{ padding:'8px', textAlign:'center', color:'oklch(45% 0.18 50)', fontWeight:600 }}>{vol}kg</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+      </div>
+
+      {showAdd && <AddExerciseModal onAdd={addExercise} onClose={() => setShowAdd(false)} />}
+    </div>
+  );
+}
+
+Object.assign(window, { GymLogPage });
+
+</script>
+<script type="text/babel">
+
+// FoodLibraryPage.jsx
+const CATEGORIES = ['All', 'Protein', 'Carbs', 'Fat', 'Veg', 'Fruit', 'Dairy', 'Nuts', 'Supplement', 'Custom'];
+const COMMON_UNITS = ['g', 'ml', 'piece', 'slice', 'scoop', 'cup', 'tbsp', 'tsp', 'bowl', 'serving'];
+
+function FoodLibraryPage() {
+  const [search, setSearch] = React.useState('');
+  const [cat, setCat] = React.useState('All');
+  const [expanded, setExpanded] = React.useState(null);
+  const [showAdd, setShowAdd] = React.useState(false);
+  const [showImport, setShowImport] = React.useState(false);
+  const [importStatus, setImportStatus] = React.useState('');
+  const [customFoods, setCustomFoods] = React.useState(() => DB.get('fgl_custom_foods', []));
+  const [form, setForm] = React.useState({
+    name:'', kcal:'', protein:'', fat:'', carb:'', sugar:'', fiber:'',
+    category:'Custom', portionSize:'100', portionUnit:'g'
+  });
+
+  const allFoods = [...DEFAULT_FOODS, ...customFoods.map(f => ({
+    portionSize: 100, portionUnit: 'g', ...f, category: f.category || 'Custom'
+  }))];
+
+  const filtered = allFoods.filter(f => {
+    const matchCat = cat === 'All' || f.category === cat;
+    const matchSearch = f.name.toLowerCase().includes(search.toLowerCase());
+    return matchCat && matchSearch;
+  });
+
+  function saveCustom() {
+    if (!form.name || !form.kcal) return;
+    const newFood = {
+      id: 'c' + Date.now(), name: form.name, category: form.category,
+      kcal: Number(form.kcal), protein: Number(form.protein) || 0,
+      fat: Number(form.fat) || 0, carb: Number(form.carb) || 0,
+      sugar: Number(form.sugar) || 0, fiber: Number(form.fiber) || 0,
+      portionSize: Number(form.portionSize) || 100, portionUnit: form.portionUnit || 'g',
+    };
+    const updated = [...customFoods, newFood];
+    DB.set('fgl_custom_foods', updated);
+    setCustomFoods(updated);
+    setForm({ name:'', kcal:'', protein:'', fat:'', carb:'', sugar:'', fiber:'', category:'Custom', portionSize:'100', portionUnit:'g' });
+    setShowAdd(false);
+  }
+
+  function deleteCustom(id) {
+    const updated = customFoods.filter(f => f.id !== id);
+    DB.set('fgl_custom_foods', updated);
+    setCustomFoods(updated);
+  }
+
+  // Excel / CSV import via SheetJS
+  function handleImport(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    setImportStatus('Reading file...');
+    const reader = new FileReader();
+    reader.onload = ev => {
+      try {
+        const data = new Uint8Array(ev.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+
+        const imported = rows.map((row, i) => {
+          // Flexible column name matching (case-insensitive)
+          const get = (keys) => {
+            for (const k of keys) {
+              const found = Object.keys(row).find(rk => rk.toLowerCase().trim() === k.toLowerCase());
+              if (found !== undefined) return row[found];
+            }
+            return '';
+          };
+          return {
+            id: 'imp' + Date.now() + i,
+            name: String(get(['name','food','food name','item']) || '').trim(),
+            kcal: Number(get(['kcal','calories','cal','energy'])) || 0,
+            protein: Number(get(['protein','pro','p'])) || 0,
+            fat: Number(get(['fat','f'])) || 0,
+            carb: Number(get(['carb','carbs','net carb','net carbs','carbohydrate','cho'])) || 0,
+            sugar: Number(get(['sugar','sugars'])) || 0,
+            fiber: Number(get(['fiber','fibre','dietary fiber'])) || 0,
+            portionSize: Number(get(['portion','portion size','serving size','serving'])) || 100,
+            portionUnit: String(get(['unit','portion unit','serving unit'])) || 'g',
+            category: String(get(['category','cat','type'])) || 'Custom',
+          };
+        }).filter(f => f.name && f.kcal > 0);
+
+        if (imported.length === 0) {
+          setImportStatus('❌ No valid rows found. Check column names: Name, Kcal, Protein, Fat, Carb, Sugar, Fiber, Portion, Unit, Category');
+          return;
+        }
+
+        const existing = DB.get('fgl_custom_foods', []);
+        const merged = [...existing, ...imported];
+        DB.set('fgl_custom_foods', merged);
+        setCustomFoods(merged);
+        setImportStatus(`✅ Imported ${imported.length} food items!`);
+        setTimeout(() => { setShowImport(false); setImportStatus(''); }, 2000);
+      } catch (err) {
+        setImportStatus('❌ Error reading file: ' + err.message);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+    e.target.value = '';
+  }
+
+  const catColors = {
+    Protein:'#3b82f6', Carbs:'#a855f7', Fat:'#f97316',
+    Veg:'#22c55e', Fruit:'#f59e0b', Dairy:'#06b6d4',
+    Nuts:'#84cc16', Supplement:'#ec4899', Custom:'#6b7280'
+  };
+
+  const inp = (extra) => ({
+    width:'100%', padding:'9px 10px', borderRadius:8, border:'1.5px solid #e5e7eb',
+    fontSize:14, outline:'none', background:'#fafafa', boxSizing:'border-box',
+    fontFamily:'inherit', marginBottom:8, ...extra
+  });
+
+  return (
+    <div style={{ height:'100%', display:'flex', flexDirection:'column', overflow:'hidden' }}>
+      <div style={{ padding:'12px 16px 0', flexShrink:0 }}>
+        <div style={{ display:'flex', gap:8, marginBottom:10 }}>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search food library..."
+            style={{ flex:1, padding:'9px 12px', borderRadius:10, border:'1.5px solid #e5e7eb', fontSize:14, outline:'none', background:'#fafafa', fontFamily:'inherit' }} />
+          <button onClick={() => setShowImport(true)} style={{ padding:'9px 11px', background:'#f3f4f6', color:'#374151', border:'none', borderRadius:10, fontWeight:700, fontSize:12, cursor:'pointer', whiteSpace:'nowrap' }}>📥 XLS</button>
+          <button onClick={() => setShowAdd(true)} style={{ padding:'9px 14px', background:'oklch(55% 0.18 145)', color:'#fff', border:'none', borderRadius:10, fontWeight:700, fontSize:14, cursor:'pointer' }}>+</button>
+        </div>
+        <div style={{ display:'flex', gap:6, overflowX:'auto', paddingBottom:8, scrollbarWidth:'none' }}>
+          {CATEGORIES.map(c => (
+            <button key={c} onClick={() => setCat(c)} style={{
+              padding:'5px 12px', borderRadius:20, border:'1.5px solid', flexShrink:0,
+              borderColor: cat===c ? (catColors[c]||'oklch(55% 0.18 145)') : '#e5e7eb',
+              background: cat===c ? (catColors[c]||'oklch(55% 0.18 145)') : '#fff',
+              color: cat===c ? '#fff' : '#6b7280', fontWeight:600, fontSize:12, cursor:'pointer'
+            }}>{c}</button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ flex:1, overflowY:'auto', padding:'4px 16px 100px' }}>
+        <div style={{ fontSize:12, color:'#9ca3af', padding:'4px 0 8px', fontWeight:600 }}>{filtered.length} items</div>
+        {filtered.map(food => {
+          const isCustom = String(food.id).startsWith('c') || String(food.id).startsWith('imp');
+          const isOpen = expanded === food.id;
+          const ps = food.portionSize || 100;
+          const pu = food.portionUnit || 'g';
+          return (
+            <div key={food.id} style={{ background:'#fff', borderRadius:14, marginBottom:8, boxShadow:'0 1px 4px rgba(0,0,0,0.06)', overflow:'hidden' }}>
+              <div onClick={() => setExpanded(isOpen ? null : food.id)} style={{ padding:'12px 14px', display:'flex', alignItems:'center', cursor:'pointer', gap:10 }}>
+                <div style={{ width:36, height:36, borderRadius:10, background: (catColors[food.category]||'#e5e7eb')+'20', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                  <div style={{ width:10, height:10, borderRadius:'50%', background: catColors[food.category] || '#e5e7eb' }} />
+                </div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:14, fontWeight:600, color:'#111', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{food.name}</div>
+                  <div style={{ fontSize:11, color:'#6b7280' }}>{food.kcal} kcal / {ps} {pu} · {food.category}</div>
+                </div>
+                <div style={{ color:'#9ca3af', fontSize:16, transform: isOpen ? 'rotate(90deg)' : 'none', transition:'transform 0.2s' }}>›</div>
+              </div>
+              {isOpen && (
+                <div style={{ padding:'0 14px 12px', borderTop:'1px solid #f3f4f6' }}>
+                  <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:6, marginTop:10 }}>
+                    {[
+                      ['🔥 Calories', food.kcal, 'kcal'],
+                      ['💪 Protein', food.protein, 'g'],
+                      ['🌾 Net Carb', food.carb, 'g'],
+                      ['🫒 Fat', food.fat, 'g'],
+                      ['🍬 Sugar', food.sugar, 'g'],
+                      ['🌿 Fiber', food.fiber, 'g'],
+                    ].map(([label, val, unit]) => (
+                      <div key={label} style={{ background:'#f9fafb', borderRadius:8, padding:'8px', textAlign:'center' }}>
+                        <div style={{ fontSize:11, color:'#6b7280', marginBottom:2 }}>{label}</div>
+                        <div style={{ fontSize:16, fontWeight:700, color:'#111' }}>{f1(val)}<span style={{ fontSize:10, color:'#9ca3af' }}>{unit}</span></div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ marginTop:8, fontSize:11, color:'#9ca3af', textAlign:'center' }}>Per {ps} {pu}</div>
+                  {isCustom && (
+                    <button onClick={() => deleteCustom(food.id)} style={{ width:'100%', marginTop:8, padding:'8px', background:'#fff0f0', color:'#ef4444', border:'1px solid #fecaca', borderRadius:8, fontSize:12, fontWeight:600, cursor:'pointer' }}>
+                      Delete Custom Food
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Add Custom Food Modal */}
+      {showAdd && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:100, display:'flex', flexDirection:'column', justifyContent:'flex-end' }}>
+          <div style={{ background:'#fff', borderRadius:'20px 20px 0 0', maxHeight:'82%', overflow:'auto' }}>
+            <div style={{ padding:'16px' }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
+                <div style={{ fontSize:17, fontWeight:700 }}>Add Custom Food</div>
+                <button onClick={() => setShowAdd(false)} style={{ width:28, height:28, borderRadius:'50%', background:'#f3f4f6', border:'none', fontSize:16, cursor:'pointer' }}>✕</button>
+              </div>
+              <input style={inp()} placeholder="Food name *" value={form.name} onChange={e => setForm(f=>({...f,name:e.target.value}))} />
+
+              {/* Portion size + unit */}
+              <div style={{ fontSize:12, fontWeight:600, color:'#6b7280', marginBottom:6 }}>Serving / Portion Size</div>
+              <div style={{ display:'flex', gap:8, marginBottom:8 }}>
+                <input type="number" placeholder="e.g. 100" value={form.portionSize}
+                  onChange={e => setForm(f=>({...f,portionSize:e.target.value}))}
+                  style={{ ...inp(), flex:1, marginBottom:0 }} />
+                <select value={form.portionUnit} onChange={e => setForm(f=>({...f,portionUnit:e.target.value}))}
+                  style={{ ...inp(), flex:1, marginBottom:0, cursor:'pointer' }}>
+                  {COMMON_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                </select>
+              </div>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:4 }}>
+                {[['kcal','Calories (kcal) *'],['protein','Protein (g)'],['fat','Fat (g)'],['carb','Net Carb (g)'],['sugar','Sugar (g)'],['fiber','Fiber (g)']].map(([k,label]) => (
+                  <div key={k}>
+                    <input type="number" placeholder={label} value={form[k]} onChange={e => setForm(f=>({...f,[k]:e.target.value}))} style={inp({ marginBottom:0 })} />
+                  </div>
+                ))}
+              </div>
+              {form.portionSize && form.kcal && (
+                <div style={{ fontSize:11, color:'oklch(45% 0.18 145)', background:'oklch(97% 0.03 145)', padding:'6px 10px', borderRadius:8, marginTop:8, marginBottom:8 }}>
+                  💡 Per {form.portionSize} {form.portionUnit}: {form.kcal} kcal · P:{form.protein||0}g · C:{form.carb||0}g · F:{form.fat||0}g
+                </div>
+              )}
+              <div style={{ marginBottom:12 }}>
+                <div style={{ fontSize:12, fontWeight:600, color:'#6b7280', marginBottom:6 }}>Category</div>
+                <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+                  {['Protein','Carbs','Fat','Veg','Fruit','Dairy','Nuts','Supplement','Custom'].map(c => (
+                    <button key={c} onClick={() => setForm(f=>({...f,category:c}))} style={{
+                      padding:'5px 10px', borderRadius:16, border:'1.5px solid', fontSize:12, fontWeight:600, cursor:'pointer',
+                      borderColor: form.category===c ? (catColors[c]||'#6b7280') : '#e5e7eb',
+                      background: form.category===c ? (catColors[c]||'#6b7280')+'20' : '#fff',
+                      color: form.category===c ? (catColors[c]||'#6b7280') : '#6b7280',
+                    }}>{c}</button>
+                  ))}
+                </div>
+              </div>
+              <button onClick={saveCustom} disabled={!form.name || !form.kcal} style={{
+                width:'100%', padding:'13px', background: form.name&&form.kcal ? 'oklch(55% 0.18 145)' : '#d1d5db',
+                color:'#fff', border:'none', borderRadius:12, fontSize:15, fontWeight:700, cursor:'pointer'
+              }}>Save to Library</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Excel Import Modal */}
+      {showImport && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:100, display:'flex', flexDirection:'column', justifyContent:'flex-end' }}>
+          <div style={{ background:'#fff', borderRadius:'20px 20px 0 0', padding:'20px 16px 32px' }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
+              <div style={{ fontSize:17, fontWeight:700 }}>Import from Excel / CSV</div>
+              <button onClick={() => { setShowImport(false); setImportStatus(''); }} style={{ width:28, height:28, borderRadius:'50%', background:'#f3f4f6', border:'none', fontSize:16, cursor:'pointer' }}>✕</button>
+            </div>
+            <div style={{ background:'#f9fafb', borderRadius:12, padding:'12px 14px', marginBottom:14 }}>
+              <div style={{ fontSize:13, fontWeight:700, color:'#374151', marginBottom:6 }}>Required columns in your file:</div>
+              <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+                {['Name *','Kcal *','Protein','Fat','Carb','Sugar','Fiber','Portion','Unit','Category'].map(c => (
+                  <span key={c} style={{ fontSize:11, padding:'3px 8px', borderRadius:6, background: c.includes('*') ? 'oklch(93% 0.06 145)' : '#e5e7eb', color: c.includes('*') ? 'oklch(40% 0.18 145)' : '#6b7280', fontWeight:600 }}>{c}</span>
+                ))}
+              </div>
+              <div style={{ fontSize:11, color:'#9ca3af', marginTop:8 }}>Column names are case-insensitive. Accepts .xlsx, .xls, .csv</div>
+            </div>
+            <label style={{ display:'block', width:'100%', padding:'14px', background:'oklch(97% 0.03 145)', border:'2px dashed oklch(80% 0.1 145)', borderRadius:12, textAlign:'center', cursor:'pointer', marginBottom: importStatus ? 10 : 0 }}>
+              <div style={{ fontSize:24, marginBottom:4 }}>📂</div>
+              <div style={{ fontSize:14, fontWeight:700, color:'oklch(45% 0.18 145)' }}>Tap to select file</div>
+              <div style={{ fontSize:11, color:'#9ca3af' }}>.xlsx, .xls, .csv</div>
+              <input type="file" accept=".xlsx,.xls,.csv" onChange={handleImport} style={{ display:'none' }} />
+            </label>
+            {importStatus && (
+              <div style={{ padding:'10px 12px', borderRadius:10, background: importStatus.startsWith('✅') ? '#f0fdf4' : importStatus.startsWith('❌') ? '#fff0f0' : '#eff6ff', fontSize:13, color: importStatus.startsWith('✅') ? '#166534' : importStatus.startsWith('❌') ? '#991b1b' : '#1d4ed8', fontWeight:500, lineHeight:1.5 }}>
+                {importStatus}
+              </div>
+            )}
+            <div style={{ marginTop:14, padding:'10px 12px', background:'#f9fafb', borderRadius:10 }}>
+              <div style={{ fontSize:12, fontWeight:700, color:'#374151', marginBottom:4 }}>Example row:</div>
+              <code style={{ fontSize:11, color:'#6b7280', lineHeight:1.8, display:'block' }}>
+                Name: Chicken Rice | Kcal: 450 | Protein: 35 | Fat: 8 | Carb: 55 | Portion: 1 | Unit: bowl
+              </code>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+Object.assign(window, { FoodLibraryPage });
+
+</script>
+<script type="text/babel">
+
+
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "accentColor": "oklch(55% 0.18 145)",
+  "gymColor": "oklch(55% 0.18 50)",
+  "darkMode": false,
+  "compactCards": false,
+  "showAdBanner": true
+}/*EDITMODE-END*/;
+
+function TabBar({ tab, setTab, hasProfile }) {
+  const tabs = [
+    { id:'food', label:'Food', icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M18 8h1a4 4 0 010 8h-1"/><path d="M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/>
+      </svg>
+    )},
+    { id:'gym', label:'Gym', icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M6.5 6.5h11M6.5 17.5h11M3 10h18M3 14h18M6 6.5v11M18 6.5v11"/>
+      </svg>
+    )},
+    { id:'library', label:'Library', icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>
+      </svg>
+    )},
+    { id:'profile', label:'Profile', icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/>
+      </svg>
+    )},
+  ];
+
+  return (
+    <div style={{
+      position:'absolute', bottom:0, left:0, right:0,
+      background:'rgba(255,255,255,0.95)', backdropFilter:'blur(12px)',
+      borderTop:'1px solid rgba(0,0,0,0.08)',
+      display:'flex', paddingBottom:20, paddingTop:6, zIndex:50
+    }}>
+      {tabs.map(t => {
+        const active = tab === t.id;
+        const color = t.id === 'gym' ? TWEAK_DEFAULTS.gymColor : TWEAK_DEFAULTS.accentColor;
+        return (
+          <button key={t.id} onClick={() => setTab(t.id)} style={{
+            flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:2,
+            background:'none', border:'none', cursor:'pointer', padding:'4px 0',
+            color: active ? color : '#9ca3af', transition:'color 0.2s'
+          }}>
+            <div style={{ transform: active ? 'scale(1.1)' : 'scale(1)', transition:'transform 0.2s' }}>
+              {React.cloneElement(t.icon, { stroke: active ? color : '#9ca3af' })}
+            </div>
+            <span style={{ fontSize:10, fontWeight: active ? 700 : 500 }}>{t.label}</span>
+            {!hasProfile && t.id === 'profile' && (
+              <div style={{ width:6, height:6, borderRadius:'50%', background:'#ef4444', position:'absolute', marginTop:-2, marginLeft:14 }} />
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function AdBanner() {
+  return (
+    <div style={{
+      position:'absolute', bottom:68, left:8, right:8,
+      background:'linear-gradient(90deg,#f9fafb,#f3f4f6)',
+      borderRadius:10, padding:'6px 10px', display:'flex', alignItems:'center',
+      gap:8, border:'1px solid #e5e7eb', zIndex:40
+    }}>
+      <div style={{ fontSize:9, fontWeight:700, color:'#9ca3af', background:'#e5e7eb', padding:'2px 5px', borderRadius:4 }}>AD</div>
+      <div style={{ flex:1 }}>
+        <div style={{ fontSize:11, fontWeight:600, color:'#374151' }}>FitLog Premium</div>
+        <div style={{ fontSize:10, color:'#9ca3af' }}>Sync across devices · Unlimited history</div>
+      </div>
+      <div style={{ fontSize:11, fontWeight:700, color:'oklch(45% 0.18 145)', cursor:'pointer' }}>Try →</div>
+    </div>
+  );
+}
+
+function OnboardingBanner({ onGo }) {
+  return (
+    <div style={{ padding:'20px 16px', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'100%', gap:16 }}>
+      <div style={{ width:80, height:80, borderRadius:24, background:'linear-gradient(135deg, oklch(55% 0.18 145), oklch(50% 0.18 165))', display:'flex', alignItems:'center', justifyContent:'center' }}>
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M18 8h1a4 4 0 010 8h-1"/><path d="M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/>
+        </svg>
+      </div>
+      <div style={{ textAlign:'center' }}>
+        <div style={{ fontSize:24, fontWeight:800, color:'#111', marginBottom:6 }}>Welcome to FitLog</div>
+        <div style={{ fontSize:14, color:'#6b7280', lineHeight:1.5 }}>Track your food intake and gym sessions.<br/>All data stays on your device.</div>
+      </div>
+      <div style={{ width:'100%', display:'flex', flexDirection:'column', gap:10, padding:'0 8px' }}>
+        {[['🍽️ Food Logging','Track meals, calories & macros'],['💪 Gym Sessions','Log sets, weights & progress'],['📚 Food Library','25+ foods + add your own'],['📊 Monthly Reports','Daily & monthly summaries']].map(([t,s]) => (
+          <div key={t} style={{ display:'flex', gap:12, alignItems:'center', background:'#fff', padding:'10px 14px', borderRadius:12, boxShadow:'0 1px 4px rgba(0,0,0,0.06)' }}>
+            <div style={{ fontSize:20 }}>{t.split(' ')[0]}</div>
+            <div>
+              <div style={{ fontSize:13, fontWeight:700, color:'#111' }}>{t.slice(3)}</div>
+              <div style={{ fontSize:11, color:'#9ca3af' }}>{s}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <button onClick={onGo} style={{ width:'100%', padding:'15px', background:'oklch(55% 0.18 145)', color:'#fff', border:'none', borderRadius:14, fontSize:16, fontWeight:800, cursor:'pointer', marginTop:8 }}>
+        Get Started →
+      </button>
+      <div style={{ fontSize:11, color:'#d1d5db' }}>Free • No account required • Local storage only</div>
+    </div>
+  );
+}
+
+function App() {
+  const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  const [tab, setTab] = React.useState('food');
+  const [profile, setProfile] = React.useState(() => DB.get('fgl_profile', {}));
+  const [onboarded, setOnboarded] = React.useState(() => !!DB.get('fgl_profile', null));
+
+  React.useEffect(() => {
+    if (profile.username) setOnboarded(true);
+  }, [profile]);
+
+  const pages = {
+    food: <FoodLogPage profile={profile} />,
+    gym: <GymLogPage />,
+    library: <FoodLibraryPage />,
+    profile: <ProfilePage profile={profile} setProfile={p => { setProfile(p); setOnboarded(true); }} />,
+  };
+
+  const pageHeaders = {
+    food: { title: '🍽️ Food Log', subtitle: profile.username ? `Hi ${profile.username}` : 'Track your nutrition' },
+    gym: { title: '💪 Gym Log', subtitle: 'Track your training' },
+    library: { title: '📚 Food Library', subtitle: `${25 + (DB.get('fgl_custom_foods',[]).length)} items` },
+    profile: { title: '👤 Profile', subtitle: profile.username || 'Setup required' },
+  };
+
+  const h = pageHeaders[tab];
+
+  return (
+    <React.Fragment>
+    <IOSDevice width={393} height={852}>
+      <div style={{ width:'100%', height:'100%', display:'flex', flexDirection:'column', background: tweaks.darkMode ? '#1a1a1a' : 'oklch(97% 0.008 120)', position:'relative', overflow:'hidden' }}>
+        {/* Header */}
+        <div style={{
+          padding:'10px 16px 8px',
+          background: tweaks.darkMode ? '#222' : 'rgba(255,255,255,0.9)',
+          backdropFilter:'blur(10px)',
+          borderBottom:'1px solid rgba(0,0,0,0.06)',
+          flexShrink:0,
+          display:'flex', justifyContent:'space-between', alignItems:'center'
+        }}>
+          <div>
+            <div style={{ fontSize:18, fontWeight:800, color: tweaks.darkMode ? '#fff' : '#111' }}>{h.title}</div>
+            <div style={{ fontSize:11, color: tweaks.darkMode ? '#9ca3af' : '#6b7280', marginTop:1 }}>{h.subtitle}</div>
+          </div>
+          <div style={{ width:36, height:36, borderRadius:'50%', background:`linear-gradient(135deg,${tweaks.accentColor},oklch(50% 0.18 165))`, display:'flex', alignItems:'center', justifyContent:'center' }}>
+            <span style={{ fontSize:16 }}>{tab==='food'?'🍽️':tab==='gym'?'💪':tab==='library'?'📚':'👤'}</span>
+          </div>
+        </div>
+
+        {/* Page content */}
+        <div style={{ flex:1, overflow:'hidden', position:'relative' }}>
+          {!onboarded && tab !== 'profile' ? (
+            <div style={{ height:'100%', overflowY:'auto' }}>
+              <OnboardingBanner onGo={() => setTab('profile')} />
+            </div>
+          ) : (
+            <div key={tab} className="page-enter" style={{ height:'100%', overflow:'hidden' }}>
+              {pages[tab]}
+            </div>
+          )}
+        </div>
+
+        {/* Ad banner */}
+        {tweaks.showAdBanner && <AdBanner />}
+
+        {/* Tab bar */}
+        <TabBar tab={tab} setTab={setTab} hasProfile={!!profile.username} />
+      </div>
+    </IOSDevice>
+      <TweaksPanel>
+        <TweakSection title="Colors">
+          <TweakColor id="accentColor" label="Food accent" />
+          <TweakColor id="gymColor" label="Gym accent" />
+        </TweakSection>
+        <TweakSection title="Display">
+          <TweakToggle id="darkMode" label="Dark mode" />
+          <TweakToggle id="showAdBanner" label="Show ad banner" />
+        </TweakSection>
+      </TweaksPanel>
+    </React.Fragment>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+
+
+</script>
+
+<!-- M003: PWA service worker registration -->
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/service-worker.js').catch(() => {});
+    });
+  }
+</script>
+</body>
+</html>

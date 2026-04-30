@@ -1,6 +1,6 @@
 // FitLog service worker — cache-first for app shell, network-first for everything else.
 // Bump CACHE_NAME on each deploy that changes index.html so users get the fresh build.
-const CACHE_NAME = 'fitlog-v1.0.2-2026-04-29';
+const CACHE_NAME = 'fitlog-v1.1.0-2026-04-30';
 const APP_SHELL = [
   '/',
   '/index.html',
